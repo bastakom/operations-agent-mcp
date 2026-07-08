@@ -1,0 +1,22 @@
+body {
+  margin: 0;
+  font-family: Arial, Helvetica, sans-serif;
+  background: #fafafa;
+  color: #111;
+}
+main {
+  max-width: 840px;
+  margin: 64px auto;
+  padding: 32px;
+}
+code {
+  background: #eee;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.card {
+  background: white;
+  border: 1px solid #e5e5e5;
+  border-radius: 16px;
+  padding: 24px;
+}
