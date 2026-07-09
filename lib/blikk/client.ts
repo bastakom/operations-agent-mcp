@@ -1,25 +1,26 @@
-import { getConfig } from "../config";
 import { getBlikkAccessToken } from "./auth";
-import type { BlikkPagedList, BlikkProject, BlikkTimeReport, BlikkUser } from "./types";
+import { getBlikkConfig } from "./config";
 
-export type QueryValue = string | number | boolean | undefined | null;
+export type QueryParams = Record<string, string | number | boolean | undefined | null>;
 
-function toQueryString(params: Record<string, QueryValue>) {
-  const query = new URLSearchParams();
+function buildUrl(path: string, query?: QueryParams): string {
+  const config = getBlikkConfig();
+  const url = new URL(path.startsWith("/") ? path : `/${path}`, config.baseUrl);
 
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null || value === "") continue;
-    query.set(key, String(value));
+  if (query) {
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== null && value !== "") {
+        url.searchParams.set(key, String(value));
+      }
+    }
   }
 
-  const output = query.toString();
-  return output ? `?${output}` : "";
+  return url.toString();
 }
 
-export async function blikkRequest<T>(path: string, params: Record<string, QueryValue> = {}): Promise<T> {
+export async function blikkGet<T>(path: string, query?: QueryParams): Promise<T> {
   const token = await getBlikkAccessToken();
-  const { blikkBaseUrl } = getConfig();
-  const url = `${blikkBaseUrl}${path}${toQueryString(params)}`;
+  const url = buildUrl(path, query);
 
   const response = await fetch(url, {
     method: "GET",
@@ -27,46 +28,19 @@ export async function blikkRequest<T>(path: string, params: Record<string, Query
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
     },
-    cache: "no-store",
   });
 
-  const bodyText = await response.text();
+  const text = await response.text();
 
   if (!response.ok) {
-    throw new Error(
-      `Blikk API-fel ${response.status} för ${path}. Svar: ${bodyText || "tomt svar"}`
-    );
+    throw new Error(`Blikk GET ${path} failed (${response.status}): ${text}`);
   }
 
-  if (!bodyText) {
-    return null as T;
+  if (!text) return null as T;
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`Blikk GET ${path} returned invalid JSON: ${text}`);
   }
-
-  return JSON.parse(bodyText) as T;
-}
-
-export async function getBlikkUsers(page = 1, pageSize = 100) {
-  return blikkRequest<BlikkPagedList<BlikkUser>>("/v1/Admin/Users", { page, pageSize });
-}
-
-export async function getBlikkProjects(page = 1, pageSize = 100) {
-  return blikkRequest<BlikkPagedList<BlikkProject>>("/v1/Core/Projects", { page, pageSize });
-}
-
-export async function getBlikkTimeReports(input: {
-  page?: number;
-  pageSize?: number;
-  dateFrom?: string;
-  dateTo?: string;
-  userId?: number;
-  projectId?: number;
-}) {
-  return blikkRequest<BlikkPagedList<BlikkTimeReport>>("/v1/Core/TimeReports", {
-    page: input.page ?? 1,
-    pageSize: input.pageSize ?? 100,
-    "filter.dateFrom": input.dateFrom,
-    "filter.dateTo": input.dateTo,
-    "filter.userId": input.userId,
-    "filter.projectId": input.projectId,
-  });
 }

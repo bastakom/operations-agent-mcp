@@ -1,46 +1,37 @@
-# Operations Agent MCP - Milestone 2
+# Operations Agent MCP
 
-Detta är andra milstolpen för Operations Agent MCP.
-
-Nu finns:
-
-- Next.js på Vercel
-- `/api/health`
-- `/api/mcp`
-- MCP tools:
-  - `health_check`
-  - `echo`
-  - `blikk_connection_test`
-  - `get_users`
-  - `get_projects`
-  - `get_time_reports`
-- Blikk auth via App ID + App Secret
-- Blikk API-klient
+MCP-server for ChatGPT Agent + Blikk API.
 
 ## Vercel Environment Variables
 
-Lägg in dessa i Vercel:
+Add these in Vercel:
 
-```text
+```txt
 BLIKK_BASE_URL=https://publicapi.blikk.com
-BLIKK_APP_ID=din_app_id
-BLIKK_APP_SECRET=din_app_secret
+BLIKK_APP_ID=...
+BLIKK_APP_SECRET=...
 ```
 
 ## Test
 
-Efter deploy:
+Health endpoint:
 
-```text
-https://din-vercel-url.vercel.app/api/health
+```txt
+/api/health
 ```
 
-Sedan kopplar du `/api/mcp` till ChatGPT Agent och testar tool:
+MCP endpoint:
 
-```text
-blikk_connection_test
+```txt
+/api/mcp
 ```
 
-## Viktigt
+## MCP tools
 
-Blikk API har rate limit. Kör inte stora datamängder innan vi byggt paginering och sammanställning.
+- `health_check`
+- `blikk_connection_test`
+- `get_users`
+- `get_projects`
+- `get_time_reports`
+- `get_user_day_statistics`
+- `get_project_time_calculation`

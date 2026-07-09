@@ -1,56 +1,55 @@
-import { assertBlikkConfig } from "../config";
-import type { BlikkTokenResponse } from "./types";
+import { getBlikkConfig } from "./config";
 
-let cachedToken: { accessToken: string; expiresAt: number } | null = null;
+type TokenResponse = {
+  access_token?: string;
+  accessToken?: string;
+  token?: string;
+  expires_in?: number;
+  expiresIn?: number;
+};
 
-function parseBlikkExpires(value?: string): number {
-  if (!value) return Date.now() + 20 * 60 * 1000;
-
-  const normalized = value.replace(" ", "T");
-  const timestamp = Date.parse(normalized);
-
-  if (Number.isNaN(timestamp)) {
-    return Date.now() + 20 * 60 * 1000;
-  }
-
-  return timestamp;
-}
+let cachedToken: { token: string; expiresAt: number } | null = null;
 
 export async function getBlikkAccessToken(): Promise<string> {
-  if (cachedToken && cachedToken.expiresAt - Date.now() > 60_000) {
-    return cachedToken.accessToken;
+  const now = Date.now();
+  if (cachedToken && cachedToken.expiresAt > now + 60_000) {
+    return cachedToken.token;
   }
 
-  const { blikkBaseUrl, blikkAppId, blikkAppSecret } = assertBlikkConfig();
-  const basic = Buffer.from(`${blikkAppId}:${blikkAppSecret}`).toString("base64");
+  const config = getBlikkConfig();
+  const auth = Buffer.from(`${config.appId}:${config.appSecret}`).toString("base64");
 
-  const response = await fetch(`${blikkBaseUrl}/v1/Auth/Token`, {
+  const response = await fetch(`${config.baseUrl}/v1/Auth/Token`, {
     method: "POST",
     headers: {
-      Authorization: `Basic ${basic}`,
+      Authorization: `Basic ${auth}`,
       Accept: "application/json",
     },
-    cache: "no-store",
   });
 
-  const bodyText = await response.text();
+  const text = await response.text();
 
   if (!response.ok) {
-    throw new Error(
-      `Blikk auth misslyckades (${response.status}). Svar från Blikk: ${bodyText || "tomt svar"}`
-    );
+    throw new Error(`Blikk auth failed (${response.status}): ${text}`);
   }
 
-  const data = JSON.parse(bodyText) as BlikkTokenResponse;
-
-  if (!data.accessToken) {
-    throw new Error("Blikk auth gav inget accessToken tillbaka.");
+  let json: TokenResponse;
+  try {
+    json = JSON.parse(text) as TokenResponse;
+  } catch {
+    throw new Error(`Blikk auth returned invalid JSON: ${text}`);
   }
 
+  const token = json.access_token || json.accessToken || json.token;
+  if (!token) {
+    throw new Error(`Blikk auth response did not contain token. Response: ${text}`);
+  }
+
+  const expiresInSeconds = json.expires_in || json.expiresIn || 3600;
   cachedToken = {
-    accessToken: data.accessToken,
-    expiresAt: parseBlikkExpires(data.expires),
+    token,
+    expiresAt: Date.now() + expiresInSeconds * 1000,
   };
 
-  return data.accessToken;
+  return token;
 }
