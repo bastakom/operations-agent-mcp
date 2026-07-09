@@ -1,19 +1,46 @@
-# Operations Agent MCP - Milestone 1
+# Operations Agent MCP - Milestone 2
 
-Detta är första stabila grunden för Operations Agent MCP.
+Detta är andra milstolpen för Operations Agent MCP.
 
-## Endpoints
+Nu finns:
 
-- `/` visar en enkel startsida.
-- `/api/health` kontrollerar att appen är live.
-- `/api/mcp` är MCP-endpointen för ChatGPT Agent.
+- Next.js på Vercel
+- `/api/health`
+- `/api/mcp`
+- MCP tools:
+  - `health_check`
+  - `echo`
+  - `blikk_connection_test`
+  - `get_users`
+  - `get_projects`
+  - `get_time_reports`
+- Blikk auth via App ID + App Secret
+- Blikk API-klient
 
-## Test efter deploy
+## Vercel Environment Variables
 
-Öppna:
+Lägg in dessa i Vercel:
 
 ```text
-https://operations-agent-mcp.vercel.app/api/health
+BLIKK_BASE_URL=https://publicapi.blikk.com
+BLIKK_APP_ID=din_app_id
+BLIKK_APP_SECRET=din_app_secret
 ```
 
-Du ska få JSON med `status: "ok"`.
+## Test
+
+Efter deploy:
+
+```text
+https://din-vercel-url.vercel.app/api/health
+```
+
+Sedan kopplar du `/api/mcp` till ChatGPT Agent och testar tool:
+
+```text
+blikk_connection_test
+```
+
+## Viktigt
+
+Blikk API har rate limit. Kör inte stora datamängder innan vi byggt paginering och sammanställning.
