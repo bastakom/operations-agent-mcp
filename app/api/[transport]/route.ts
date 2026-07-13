@@ -6,7 +6,7 @@ const handler = createMcpHandler(
       "health_check",
       {
         title: "Health Check",
-        description: "Checks that the MCP server is alive.",
+        description: "Checks that the MCP server is alive and well.",
         inputSchema: {},
       },
       async () => ({
