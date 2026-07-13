@@ -1,11 +1,19 @@
 import { blikkGet, QueryParams } from "./client";
 
 function paged(query: QueryParams = {}): QueryParams {
-  return {
-    page: 1,
-    pageSize: 100,
+  const result: QueryParams = {
     ...query,
   };
+
+  if (result.page == null) {
+    result.page = 1;
+  }
+
+  if (result.pageSize == null) {
+    result.pageSize = 100;
+  }
+
+  return result;
 }
 
 export async function getUsers(params?: {
