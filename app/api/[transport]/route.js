@@ -1,11 +1,15 @@
 import { createMcpHandler } from "mcp-handler";
+import { z } from "zod";
 
 const handler = createMcpHandler(
   (server) => {
-    server.tool(
+    server.registerTool(
       "health_check",
-      "Checks that the MCP server is alive.",
-      {},
+      {
+        title: "Health Check",
+        description: "Checks that the MCP server is alive.",
+        inputSchema: {},
+      },
       async () => ({
         content: [
           {
@@ -20,6 +24,7 @@ const handler = createMcpHandler(
   {
     basePath: "/api",
     verboseLogs: true,
+    maxDuration: 60,
   }
 );
 
