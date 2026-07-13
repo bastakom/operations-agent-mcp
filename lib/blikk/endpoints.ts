@@ -1,7 +1,13 @@
 import { blikkGet } from "./client";
 
-export async function getUsers() {
-  return blikkGet<unknown>("/v1/Admin/Users");
+export async function getUsers(params?: {
+  page?: number;
+  pageSize?: number;
+}) {
+  return blikkGet<unknown>("/v1/Admin/Users", {
+    page: params?.page ?? 1,
+    pageSize: params?.pageSize ?? 100,
+  });
 }
 
 export async function getProjects() {
