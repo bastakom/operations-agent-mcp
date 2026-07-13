@@ -1,5 +1,5 @@
 import { createMcpHandler } from "mcp-handler";
-import { getUsers } from "../../../lib/blikk/endpoints";
+import { getUsers, getProjects } from "../../../lib/blikk/endpoints";
 
 const handler = createMcpHandler(
   (server) => {
@@ -53,6 +53,49 @@ const handler = createMcpHandler(
           };
         } catch (error) {
           console.error("❌ get_users failed:", error);
+
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Blikk error: ${error.message}`
+                    : "Unknown Blikk error",
+              },
+            ],
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "get_projects",
+      {
+        title: "Get Projects",
+        description: "Fetches all projects from Blikk.",
+        inputSchema: {},
+      },
+      async () => {
+        console.log("➡️ get_projects tool invoked");
+
+        try {
+          console.log("➡️ Calling getProjects()");
+
+          const projects = await getProjects();
+
+          console.log("✅ getProjects() completed");
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(projects, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          console.error("❌ get_projects failed:", error);
 
           return {
             content: [
