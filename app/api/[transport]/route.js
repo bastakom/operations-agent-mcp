@@ -20,7 +20,6 @@ const handler = createMcpHandler(
   {
     basePath: "/api",
     verboseLogs: true,
-    maxDuration: 60,
   }
 );
 
