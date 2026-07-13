@@ -3,6 +3,8 @@ import { getUsers } from "../../../lib/blikk/endpoints";
 
 const handler = createMcpHandler(
   (server) => {
+    console.log("🚀 MCP server initialized");
+
     server.registerTool(
       "health_check",
       {
@@ -10,14 +12,18 @@ const handler = createMcpHandler(
         description: "Checks that the MCP server is alive and well.",
         inputSchema: {},
       },
-      async () => ({
-        content: [
-          {
-            type: "text",
-            text: "MCP server is alive 🚀",
-          },
-        ],
-      })
+      async () => {
+        console.log("✅ health_check called");
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: "MCP server is alive 🚀",
+            },
+          ],
+        };
+      }
     );
 
     server.registerTool(
@@ -28,8 +34,14 @@ const handler = createMcpHandler(
         inputSchema: {},
       },
       async () => {
+        console.log("➡️ get_users tool invoked");
+
         try {
+          console.log("➡️ Calling getUsers()");
+
           const users = await getUsers();
+
+          console.log("✅ getUsers() completed");
 
           return {
             content: [
@@ -40,6 +52,8 @@ const handler = createMcpHandler(
             ],
           };
         } catch (error) {
+          console.error("❌ get_users failed:", error);
+
           return {
             content: [
               {
