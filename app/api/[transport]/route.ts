@@ -27,4 +27,4 @@ const handler = createMcpHandler(
   }
 );
 
-export { handler as GET, handler as POST };
+export { handler as GET, handler as POST, handler as DELETE };
