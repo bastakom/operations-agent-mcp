@@ -1,17 +1,37 @@
-import { blikkGet } from "./client";
+import { blikkGet, QueryParams } from "./client";
+
+function paged(query: QueryParams = {}): QueryParams {
+  return {
+    page: 1,
+    pageSize: 100,
+    ...query,
+  };
+}
 
 export async function getUsers(params?: {
   page?: number;
   pageSize?: number;
 }) {
-  return blikkGet<unknown>("/v1/Admin/Users", {
-    page: params?.page ?? 1,
-    pageSize: params?.pageSize ?? 100,
-  });
+  return blikkGet<unknown>(
+    "/v1/Admin/Users",
+    paged({
+      page: params?.page,
+      pageSize: params?.pageSize,
+    })
+  );
 }
 
-export async function getProjects() {
-  return blikkGet<unknown>("/v1/Core/Projects");
+export async function getProjects(params?: {
+  page?: number;
+  pageSize?: number;
+}) {
+  return blikkGet<unknown>(
+    "/v1/Core/Projects",
+    paged({
+      page: params?.page,
+      pageSize: params?.pageSize,
+    })
+  );
 }
 
 export async function getTimeReports(params: {
@@ -19,18 +39,30 @@ export async function getTimeReports(params: {
   toDate?: string;
   userId?: string;
   projectId?: string;
+  page?: number;
+  pageSize?: number;
 }) {
-  return blikkGet<unknown>("/v1/Core/TimeReports", params);
+  return blikkGet<unknown>(
+    "/v1/Core/TimeReports",
+    paged(params)
+  );
 }
 
 export async function getUserDayStatistics(params: {
   fromDate: string;
   toDate: string;
   userId?: string;
+  page?: number;
+  pageSize?: number;
 }) {
-  return blikkGet<unknown>("/v1/Core/TimeReports/UserDayStatistics", params);
+  return blikkGet<unknown>(
+    "/v1/Core/TimeReports/UserDayStatistics",
+    paged(params)
+  );
 }
 
 export async function getProjectTimeCalculation(projectId: string) {
-  return blikkGet<unknown>(`/v1/Core/Projects/${projectId}/TimeCalculation`);
+  return blikkGet<unknown>(
+    `/v1/Core/Projects/${projectId}/TimeCalculation`
+  );
 }
