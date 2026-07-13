@@ -52,7 +52,17 @@ export async function getTimeReports(params: {
 }) {
   return blikkGet<unknown>(
     "/v1/Core/TimeReports",
-    paged(params)
+    paged({
+      page: params.page,
+      pageSize: params.pageSize,
+
+      "filter.from": params.fromDate,
+      "filter.to": params.toDate,
+
+      "filter.userIds": params.userId,
+
+      "filter.projectId": params.projectId,
+    })
   );
 }
 
