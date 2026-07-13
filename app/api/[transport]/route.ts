@@ -4,6 +4,7 @@ import {
   getUsers,
   getProjects,
   getTimeReports,
+  getUserDayStatistics,
 } from "../../../lib/blikk/endpoints";
 
 const handler = createMcpHandler(
@@ -154,6 +155,57 @@ const handler = createMcpHandler(
           };
         } catch (error) {
           console.error("❌ get_time_reports failed:", error);
+
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Blikk error: ${error.message}`
+                    : "Unknown Blikk error",
+              },
+            ],
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "get_user_day_statistics",
+      {
+        title: "Get User Day Statistics",
+        description: "Fetches daily statistics for a user from Blikk.",
+        inputSchema: {
+          fromDate: z.string(),
+          toDate: z.string(),
+          userId: z.string().optional(),
+        },
+      },
+      async ({ fromDate, toDate, userId }) => {
+        console.log("➡️ get_user_day_statistics tool invoked");
+
+        try {
+          console.log("➡️ Calling getUserDayStatistics()");
+
+          const statistics = await getUserDayStatistics({
+            fromDate,
+            toDate,
+            userId,
+          });
+
+          console.log("✅ getUserDayStatistics() completed");
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(statistics, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          console.error("❌ get_user_day_statistics failed:", error);
 
           return {
             content: [
