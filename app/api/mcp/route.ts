@@ -10,6 +10,8 @@ import {
 } from "../../../lib/blikk/endpoints";
 import { getPreviousWeekRange } from "../../../lib/tools/dates";
 
+console.log("MCP route loaded");
+
 function asText(data: unknown) {
   return JSON.stringify(data, null, 2);
 }
