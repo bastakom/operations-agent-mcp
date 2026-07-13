@@ -18,9 +18,10 @@ const handler = createMcpHandler(
   },
   {},
   {
-    basePath: "/api/mcp",
+    basePath: "/api",
     verboseLogs: true,
+    maxDuration: 60,
   }
 );
 
-export { handler as GET, handler as POST, handler as DELETE };
+export { handler as GET, handler as POST };
