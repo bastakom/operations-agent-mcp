@@ -5,6 +5,7 @@ import {
   getProjects,
   getTimeReports,
   getUserDayStatistics,
+  getProjectTimeCalculation,
 } from "../../../lib/blikk/endpoints";
 
 const handler = createMcpHandler(
@@ -206,6 +207,52 @@ const handler = createMcpHandler(
           };
         } catch (error) {
           console.error("❌ get_user_day_statistics failed:", error);
+
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Blikk error: ${error.message}`
+                    : "Unknown Blikk error",
+              },
+            ],
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "get_project_time_calculation",
+      {
+        title: "Get Project Time Calculation",
+        description:
+          "Fetches time calculation, budget usage and remaining time for a specific project in Blikk.",
+        inputSchema: {
+          projectId: z.string(),
+        },
+      },
+      async ({ projectId }) => {
+        console.log("➡️ get_project_time_calculation tool invoked");
+
+        try {
+          console.log("➡️ Calling getProjectTimeCalculation()");
+
+          const calculation = await getProjectTimeCalculation(projectId);
+
+          console.log("✅ getProjectTimeCalculation() completed");
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(calculation, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          console.error("❌ get_project_time_calculation failed:", error);
 
           return {
             content: [
