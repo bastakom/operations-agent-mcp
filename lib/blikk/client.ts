@@ -6,15 +6,31 @@ export type QueryParams = Record<
   string | number | boolean | undefined | null
 >;
 
+type PagedResponseSummary = {
+  objectName?: string;
+  page?: number;
+  pageSize?: number;
+  itemCount?: number;
+  totalItemCount?: number;
+  totalPages?: number;
+};
+
 function buildUrl(path: string, query?: QueryParams): string {
   console.log("➡️ buildUrl()");
 
   const config = getBlikkConfig();
-  const url = new URL(path.startsWith("/") ? path : `/${path}`, config.baseUrl);
+  const url = new URL(
+    path.startsWith("/") ? path : `/${path}`,
+    config.baseUrl
+  );
 
   if (query) {
     for (const [key, value] of Object.entries(query)) {
-      if (value !== undefined && value !== null && value !== "") {
+      if (
+        value !== undefined &&
+        value !== null &&
+        value !== ""
+      ) {
         url.searchParams.set(key, String(value));
       }
     }
@@ -23,6 +39,47 @@ function buildUrl(path: string, query?: QueryParams): string {
   console.log("🌍 Blikk URL:", url.toString());
 
   return url.toString();
+}
+
+function logResponseBody(text: string): void {
+  if (!text) {
+    console.log("ℹ️ Empty response body");
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(text) as PagedResponseSummary;
+
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof parsed.page === "number" &&
+      typeof parsed.totalPages === "number"
+    ) {
+      console.log("📄 Paginated response summary:", {
+        objectName: parsed.objectName,
+        page: parsed.page,
+        pageSize: parsed.pageSize,
+        itemCount: parsed.itemCount,
+        totalItemCount: parsed.totalItemCount,
+        totalPages: parsed.totalPages,
+      });
+
+      return;
+    }
+  } catch {
+    // The normal JSON validation below handles invalid JSON.
+  }
+
+  if (text.length <= 2000) {
+    console.log("📄 Response body:", text);
+    return;
+  }
+
+  console.log("📄 Large response body omitted from logs:", {
+    characterCount: text.length,
+    preview: `${text.slice(0, 500)}...`,
+  });
 }
 
 export async function blikkGet<T>(
@@ -55,17 +112,18 @@ export async function blikkGet<T>(
 
   const text = await response.text();
 
-  console.log("📄 Response body:");
-  console.log(text);
-
   if (!response.ok) {
     console.error("❌ Blikk request failed");
+    console.error("📄 Error response body:", text);
 
-    throw new Error(`Blikk GET ${path} failed (${response.status}): ${text}`);
+    throw new Error(
+      `Blikk GET ${path} failed (${response.status}): ${text}`
+    );
   }
 
+  logResponseBody(text);
+
   if (!text) {
-    console.log("ℹ️ Empty response body");
     return null as T;
   }
 
