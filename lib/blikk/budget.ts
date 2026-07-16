@@ -20,6 +20,10 @@ type ProjectTimeCalculation = {
 type TimeReport = {
   id: number;
   hours: number;
+  user?: {
+    id: number | string;
+    name: string;
+  } | null;
 };
 
 type TimeReportResponse = {
@@ -46,7 +50,9 @@ export type ProjectBudgetStatus = {
 export type ExcludedUserBudgetItem = {
   requestedName: string;
   userId: string;
+  userName: string;
   reportedHours: number;
+  resolvedFrom: "time_reports" | "user_registry";
 };
 
 export type ProjectBudgetStatusExcludingUsers = {
@@ -182,6 +188,96 @@ function sumReportedHours(reports: TimeReport[]): number {
     (sum, report) => sum + Number(report.hours || 0),
     0
   );
+}
+
+type ReportedProjectUser = {
+  userId: string;
+  userName: string;
+  reportedHours: number;
+};
+
+function normalizeName(name: string): string {
+  return name.trim().toLocaleLowerCase("sv-SE");
+}
+
+function getReportedProjectUsers(
+  reports: TimeReport[]
+): ReportedProjectUser[] {
+  const usersById = new Map<string, ReportedProjectUser>();
+
+  for (const report of reports) {
+    if (
+      !report.user ||
+      report.user.id === null ||
+      report.user.id === undefined ||
+      typeof report.user.name !== "string" ||
+      report.user.name.trim().length === 0
+    ) {
+      continue;
+    }
+
+    const userId = String(report.user.id);
+    const userName = report.user.name.trim();
+    const reportedHours = Number(report.hours || 0);
+    const existingUser = usersById.get(userId);
+
+    if (existingUser) {
+      existingUser.reportedHours += reportedHours;
+    } else {
+      usersById.set(userId, {
+        userId,
+        userName,
+        reportedHours,
+      });
+    }
+  }
+
+  return [...usersById.values()];
+}
+
+function resolveUserFromTimeReports(
+  requestedName: string,
+  reportedUsers: ReportedProjectUser[]
+): ReportedProjectUser | null {
+  const normalizedRequestedName = normalizeName(requestedName);
+
+  const exactMatches = reportedUsers.filter(
+    (user) => normalizeName(user.userName) === normalizedRequestedName
+  );
+
+  if (exactMatches.length === 1) {
+    return exactMatches[0];
+  }
+
+  if (exactMatches.length > 1) {
+    const matchingNames = exactMatches
+      .map((user) => `${user.userName} (ID ${user.userId})`)
+      .join(", ");
+
+    throw new Error(
+      `Multiple users in the project's time reports exactly match '${requestedName}': ${matchingNames}. Please use a more specific name.`
+    );
+  }
+
+  const partialMatches = reportedUsers.filter((user) =>
+    normalizeName(user.userName).includes(normalizedRequestedName)
+  );
+
+  if (partialMatches.length === 1) {
+    return partialMatches[0];
+  }
+
+  if (partialMatches.length > 1) {
+    const matchingNames = partialMatches
+      .map((user) => `${user.userName} (ID ${user.userId})`)
+      .join(", ");
+
+    throw new Error(
+      `Multiple users in the project's time reports match '${requestedName}': ${matchingNames}. Please use a more specific name.`
+    );
+  }
+
+  return null;
 }
 
 async function getAllProjectTimeReports(
@@ -344,12 +440,33 @@ export async function getProjectBudgetStatusExcludingUsers(
 
   const allReports = await getAllProjectTimeReports(projectId);
   const totalReportedHours = sumReportedHours(allReports);
+  const reportedUsers = getReportedProjectUsers(allReports);
 
   const excludedUsers: ExcludedUserBudgetItem[] = [];
   const resolvedUserIds = new Set<string>();
 
   for (const requestedName of cleanedUserNames) {
-    const userId = await resolveUserId(requestedName);
+    const reportedUser = resolveUserFromTimeReports(
+      requestedName,
+      reportedUsers
+    );
+
+    let userId: string;
+    let userName: string;
+    let reportedHours: number;
+    let resolvedFrom: "time_reports" | "user_registry";
+
+    if (reportedUser) {
+      userId = reportedUser.userId;
+      userName = reportedUser.userName;
+      reportedHours = reportedUser.reportedHours;
+      resolvedFrom = "time_reports";
+    } else {
+      userId = await resolveUserId(requestedName);
+      userName = requestedName;
+      reportedHours = 0;
+      resolvedFrom = "user_registry";
+    }
 
     if (resolvedUserIds.has(userId)) {
       console.log(
@@ -360,19 +477,12 @@ export async function getProjectBudgetStatusExcludingUsers(
 
     resolvedUserIds.add(userId);
 
-    await wait(REQUEST_DELAY_MS);
-
-    const userReports = await getAllProjectTimeReports(
-      projectId,
-      userId
-    );
-
-    const reportedHours = sumReportedHours(userReports);
-
     excludedUsers.push({
       requestedName,
       userId,
+      userName,
       reportedHours: round(reportedHours),
+      resolvedFrom,
     });
   }
 
