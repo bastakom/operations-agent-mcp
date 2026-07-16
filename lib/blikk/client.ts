@@ -115,18 +115,34 @@ function logResponseBody(
         totalPages: parsed.totalPages,
       });
 
+      const isTimeReportPath = path
+        .toLowerCase()
+        .endsWith("/timereports");
+
+      if (isTimeReportPath) {
+        console.log(
+          "TIME_REPORT_DEBUG:",
+          JSON.stringify({
+            path,
+            hasItemsArray: Array.isArray(parsed.items),
+            numberOfItems: Array.isArray(parsed.items)
+              ? parsed.items.length
+              : null,
+          })
+        );
+      }
+
       if (
-        path === "/v1/Core/TimeReports" &&
+        isTimeReportPath &&
         Array.isArray(parsed.items) &&
         parsed.items.length > 0
       ) {
+        const structure = describeValueStructure(
+          parsed.items[0]
+        );
+
         console.log(
-          "🔎 Time report field structure:",
-          JSON.stringify(
-            describeValueStructure(parsed.items[0]),
-            null,
-            2
-          )
+          `TIME_REPORT_STRUCTURE=${JSON.stringify(structure)}`
         );
       }
 
