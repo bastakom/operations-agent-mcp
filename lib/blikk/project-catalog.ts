@@ -85,7 +85,7 @@ export async function getProjectCatalogView(
   );
 
   const requestedPageSize = Math.min(
-    Math.max(Math.floor(params.pageSize ?? 50), 1),
+    Math.max(Math.floor(params.pageSize ?? 200), 1),
     300
   );
 
