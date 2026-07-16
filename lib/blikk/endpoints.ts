@@ -113,3 +113,28 @@ export async function getUsersWithResourcePlanning(params: {
     })
   );
 }
+
+export async function getPlanningSummariesForUser(params: {
+  userId: string;
+  fromDate: string;
+  toDate: string;
+  page?: number;
+  pageSize?: number;
+  excludeProjects?: boolean;
+  excludeAbsence?: boolean;
+  excludeInternal?: boolean;
+}) {
+  return blikkGet<unknown>(
+    "/v1/Core/Planning/GetPlanningSummaries/Projects",
+    paged({
+      userId: params.userId,
+      fromDate: params.fromDate,
+      toDate: params.toDate,
+      page: params.page,
+      pageSize: params.pageSize,
+      excludeProjects: params.excludeProjects ?? false,
+      excludeAbsence: params.excludeAbsence ?? false,
+      excludeInternal: params.excludeInternal ?? false,
+    })
+  );
+}
