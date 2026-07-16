@@ -7,6 +7,7 @@ import {
   getUserDayStatistics,
   getProjectTimeCalculation,
 } from "../../../lib/blikk/endpoints";
+import { resolveProjectId } from "../../../lib/blikk/resolvers";
 
 const handler = createMcpHandler(
   (server) => {
@@ -230,17 +231,23 @@ const handler = createMcpHandler(
       {
         title: "Get Project Time Calculation",
         description:
-          "Fetches time calculation, budget usage and remaining time for a specific project in Blikk.",
+          "Fetches time calculation, budget usage and remaining time for a specific project in Blikk. Accepts the project name.",
         inputSchema: {
-          projectId: z.string(),
+          project: z.string(),
         },
       },
-      async ({ projectId }) => {
+      async ({ project }) => {
         console.log(
           ":arrow_right: get_project_time_calculation tool invoked"
         );
 
         try {
+          console.log(
+            ":arrow_right: Resolving project name to project ID"
+          );
+
+          const projectId = await resolveProjectId(project);
+
           console.log(
             ":arrow_right: Calling getProjectTimeCalculation()"
           );
