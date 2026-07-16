@@ -7,6 +7,7 @@ import {
   getUserDayStatistics,
   getProjectTimeCalculation,
   getUsersWithResourcePlanning,
+  getPlanningSummariesForUser,
 } from "../../../lib/blikk/endpoints";
 import { resolveProjectId } from "../../../lib/blikk/resolvers";
 import {
@@ -126,6 +127,67 @@ const handler = createMcpHandler(
         } catch (error) {
           console.error(
             ":x: get_users_with_resource_planning failed:",
+            error
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Blikk error: ${error.message}`
+                    : "Unknown Blikk error",
+              },
+            ],
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "get_user_planning_summaries",
+      {
+        title: "Get User Planning Summaries",
+        description:
+          "Returns a Blikk user's planned hours grouped by project for an inclusive date range. Requires the numeric Blikk user ID. Dates must use the YYYY-MM-DD format.",
+        inputSchema: {
+          userId: z.string(),
+          fromDate: z.string(),
+          toDate: z.string(),
+        },
+      },
+      async ({ userId, fromDate, toDate }) => {
+        console.log(
+          ":arrow_right: get_user_planning_summaries tool invoked"
+        );
+
+        try {
+          console.log(
+            ":arrow_right: Calling getPlanningSummariesForUser()"
+          );
+
+          const summaries = await getPlanningSummariesForUser({
+            userId,
+            fromDate,
+            toDate,
+          });
+
+          console.log(
+            ":white_check_mark: getPlanningSummariesForUser() completed"
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(summaries, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          console.error(
+            ":x: get_user_planning_summaries failed:",
             error
           );
 
@@ -310,10 +372,14 @@ const handler = createMcpHandler(
         },
       },
       async ({ fromDate, toDate, userId }) => {
-        console.log(":arrow_right: get_user_day_statistics tool invoked");
+        console.log(
+          ":arrow_right: get_user_day_statistics tool invoked"
+        );
 
         try {
-          console.log(":arrow_right: Calling getUserDayStatistics()");
+          console.log(
+            ":arrow_right: Calling getUserDayStatistics()"
+          );
 
           const statistics = await getUserDayStatistics({
             fromDate,
@@ -334,7 +400,10 @@ const handler = createMcpHandler(
             ],
           };
         } catch (error) {
-          console.error(":x: get_user_day_statistics failed:", error);
+          console.error(
+            ":x: get_user_day_statistics failed:",
+            error
+          );
 
           return {
             content: [
@@ -559,7 +628,8 @@ function unauthorizedResponse(): Response {
     {
       status: 401,
       headers: {
-        "WWW-Authenticate": 'Bearer realm="operations-agent-mcp"',
+        "WWW-Authenticate":
+          'Bearer realm="operations-agent-mcp"',
       },
     }
   );
