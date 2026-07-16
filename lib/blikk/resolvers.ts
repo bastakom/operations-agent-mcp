@@ -10,12 +10,18 @@ type BlikkProjectCustomer = {
   name: string;
 };
 
+type BlikkProjectManager = {
+  id: number | string;
+  name: string;
+};
+
 type BlikkProjectApiItem = {
   id: number | string;
   orderNumber?: string | null;
   title: string;
   status?: BlikkProjectStatus | null;
   customer?: BlikkProjectCustomer | null;
+  projectManager?: BlikkProjectManager | null;
   startDate?: string | null;
   endDate?: string | null;
 };
@@ -45,6 +51,8 @@ export type ProjectCatalogItem = {
   isCompleted: boolean | null;
   customerId: string | null;
   customerName: string | null;
+  projectManagerId: string | null;
+  projectManagerName: string | null;
   startDate: string | null;
   endDate: string | null;
 };
@@ -82,6 +90,11 @@ function toCatalogItem(
         ? String(project.customer.id)
         : null,
     customerName: project.customer?.name ?? null,
+    projectManagerId:
+      project.projectManager?.id !== undefined
+        ? String(project.projectManager.id)
+        : null,
+    projectManagerName: project.projectManager?.name ?? null,
     startDate: project.startDate ?? null,
     endDate: project.endDate ?? null,
   };
