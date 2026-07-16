@@ -13,18 +13,41 @@ type BlikkUser = {
   name?: string;
 };
 
-export async function resolveProjectId(projectName: string): Promise<string> {
+export async function resolveProjectId(
+  projectName: string
+): Promise<string> {
   const projects = (await getProjects()) as BlikkProject[];
 
-  const project = projects.find(
-    (p) => p.name.toLowerCase() === projectName.toLowerCase()
+  const normalizedProjectName = projectName.trim().toLowerCase();
+
+  const exactMatch = projects.find(
+    (project) =>
+      project.name.trim().toLowerCase() === normalizedProjectName
   );
 
-  if (!project) {
-    throw new Error(`Project '${projectName}' not found.`);
+  if (exactMatch) {
+    return exactMatch.id;
   }
 
-  return project.id;
+  const partialMatches = projects.filter((project) =>
+    project.name.trim().toLowerCase().includes(normalizedProjectName)
+  );
+
+  if (partialMatches.length === 1) {
+    return partialMatches[0].id;
+  }
+
+  if (partialMatches.length > 1) {
+    const matchingNames = partialMatches
+      .map((project) => project.name)
+      .join(", ");
+
+    throw new Error(
+      `Multiple projects match '${projectName}': ${matchingNames}. Please specify the project name.`
+    );
+  }
+
+  throw new Error(`Project '${projectName}' not found.`);
 }
 
 export async function resolveUserId(userName: string): Promise<string> {
