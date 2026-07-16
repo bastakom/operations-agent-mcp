@@ -92,3 +92,24 @@ export async function getProjectTimeCalculation(projectId: string) {
     `/v1/Core/Projects/${projectId}/TimeCalculation`
   );
 }
+
+export async function getUsersWithResourcePlanning(params: {
+  fromDate: string;
+  toDate: string;
+  page?: number;
+  pageSize?: number;
+  excludeDeleted?: boolean;
+  excludeRestricted?: boolean;
+}) {
+  return blikkGet<unknown>(
+    "/v1/Core/Planning/HasResourcePlanning/Users",
+    paged({
+      fromDate: params.fromDate,
+      toDate: params.toDate,
+      page: params.page,
+      pageSize: params.pageSize,
+      excludeDeleted: params.excludeDeleted ?? true,
+      excludeRestricted: params.excludeRestricted ?? true,
+    })
+  );
+}
