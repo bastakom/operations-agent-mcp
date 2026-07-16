@@ -9,6 +9,7 @@ import {
 } from "../../../lib/blikk/endpoints";
 import { resolveProjectId } from "../../../lib/blikk/resolvers";
 import { getProjectBudgetStatus } from "../../../lib/blikk/budget";
+import { getProjectCatalogView } from "../../../lib/blikk/project-catalog";
 
 const handler = createMcpHandler(
   (server) => {
@@ -106,6 +107,59 @@ const handler = createMcpHandler(
           };
         } catch (error) {
           console.error(":x: get_projects failed:", error);
+
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Blikk error: ${error.message}`
+                    : "Unknown Blikk error",
+              },
+            ],
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "list_project_statuses",
+      {
+        title: "List Project Statuses",
+        description:
+          "Returns a status summary and the first page of projects from the complete Blikk project catalog.",
+        inputSchema: {},
+      },
+      async () => {
+        console.log(
+          ":arrow_right: list_project_statuses tool invoked"
+        );
+
+        try {
+          console.log(
+            ":arrow_right: Calling getProjectCatalogView()"
+          );
+
+          const result = await getProjectCatalogView({});
+
+          console.log(
+            ":white_check_mark: getProjectCatalogView() completed"
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          console.error(
+            ":x: list_project_statuses failed:",
+            error
+          );
 
           return {
             content: [
