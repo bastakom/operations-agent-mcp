@@ -8,6 +8,7 @@ import {
   getProjectTimeCalculation,
 } from "../../../lib/blikk/endpoints";
 import { resolveProjectId } from "../../../lib/blikk/resolvers";
+import { getProjectBudgetStatus } from "../../../lib/blikk/budget";
 
 const handler = createMcpHandler(
   (server) => {
@@ -231,7 +232,7 @@ const handler = createMcpHandler(
       {
         title: "Get Project Time Calculation",
         description:
-          "Fetches time calculation, budget usage and remaining time for a specific project in Blikk. Accepts the project name.",
+          "Fetches the total number of planned or calculated hours for a specific project in Blikk. This tool does not calculate reported hours, remaining hours or percentages. Use get_project_budget_status for complete budget status.",
         inputSchema: {
           project: z.string(),
         },
@@ -252,7 +253,8 @@ const handler = createMcpHandler(
             ":arrow_right: Calling getProjectTimeCalculation()"
           );
 
-          const calculation = await getProjectTimeCalculation(projectId);
+          const calculation =
+            await getProjectTimeCalculation(projectId);
 
           console.log(
             ":white_check_mark: getProjectTimeCalculation() completed"
@@ -269,6 +271,62 @@ const handler = createMcpHandler(
         } catch (error) {
           console.error(
             ":x: get_project_time_calculation failed:",
+            error
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Blikk error: ${error.message}`
+                    : "Unknown Blikk error",
+              },
+            ],
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "get_project_budget_status",
+      {
+        title: "Get Project Budget Status",
+        description:
+          "Calculates the complete time budget status for a project in Blikk. Returns total budget hours, reported hours, remaining hours, used percentage, remaining percentage and whether the project is over budget. Use this tool for questions about remaining project time, budget usage or budget percentages. Accepts a full or partial project name.",
+        inputSchema: {
+          project: z.string(),
+        },
+      },
+      async ({ project }) => {
+        console.log(
+          ":arrow_right: get_project_budget_status tool invoked"
+        );
+
+        try {
+          console.log(
+            ":arrow_right: Calling getProjectBudgetStatus()"
+          );
+
+          const budgetStatus =
+            await getProjectBudgetStatus(project);
+
+          console.log(
+            ":white_check_mark: getProjectBudgetStatus() completed"
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(budgetStatus, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          console.error(
+            ":x: get_project_budget_status failed:",
             error
           );
 
@@ -329,7 +387,9 @@ function unauthorizedResponse(): Response {
   );
 }
 
-async function authenticatedHandler(request: Request): Promise<Response> {
+async function authenticatedHandler(
+  request: Request
+): Promise<Response> {
   if (!isAuthorized(request)) {
     console.warn("Unauthorized MCP request blocked");
     return unauthorizedResponse();
