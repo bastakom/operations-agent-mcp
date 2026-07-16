@@ -40,11 +40,20 @@ type BlikkProjectResponse = {
 };
 
 type BlikkUser = {
-  id: string;
-  firstName?: string;
-  lastName?: string;
-  fullName?: string;
-  name?: string;
+  id: number | string;
+  firstName?: string | null;
+  lastName?: string | null;
+  fullName?: string | null;
+  name?: string | null;
+};
+
+type BlikkUserResponse = {
+  page: number;
+  pageSize: number;
+  itemCount: number;
+  totalItemCount: number;
+  totalPages: number;
+  items: BlikkUser[];
 };
 
 type BlikkPlanningUser = {
@@ -82,10 +91,20 @@ type ProjectCache = {
   expiresAt: number;
 };
 
+type UserCache = {
+  users: BlikkUser[];
+  expiresAt: number;
+};
+
 const PROJECT_CACHE_TTL_MS = 10 * 60 * 1000;
+const USER_CACHE_TTL_MS = 10 * 60 * 1000;
+const REQUEST_DELAY_MS = 1100;
 
 let projectCache: ProjectCache | null = null;
 let projectLoadPromise: Promise<ProjectCatalogItem[]> | null = null;
+
+let userCache: UserCache | null = null;
+let userLoadPromise: Promise<BlikkUser[]> | null = null;
 
 function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => {
@@ -95,6 +114,14 @@ function wait(milliseconds: number): Promise<void> {
 
 function normalize(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function getUserFullName(user: BlikkUser): string {
+  return (
+    user.fullName ??
+    user.name ??
+    `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim()
+  ).trim();
 }
 
 function getPlanningUserFullName(
@@ -138,16 +165,28 @@ async function fetchAllProjects(): Promise<ProjectCatalogItem[]> {
     pageSize: 100,
   })) as BlikkProjectResponse;
 
+  if (!firstPage || !Array.isArray(firstPage.items)) {
+    throw new Error(
+      "Blikk returned an unexpected response when fetching projects."
+    );
+  }
+
   const projects: ProjectCatalogItem[] =
     firstPage.items.map(toCatalogItem);
 
   for (let page = 2; page <= firstPage.totalPages; page += 1) {
-    await wait(1100);
+    await wait(REQUEST_DELAY_MS);
 
     const response = (await getProjects({
       page,
       pageSize: 100,
     })) as BlikkProjectResponse;
+
+    if (!response || !Array.isArray(response.items)) {
+      throw new Error(
+        `Blikk returned an unexpected response when fetching projects on page ${page}.`
+      );
+    }
 
     projects.push(...response.items.map(toCatalogItem));
   }
@@ -193,6 +232,80 @@ async function getCachedProjects(): Promise<ProjectCatalogItem[]> {
   }
 }
 
+async function fetchAllUsers(): Promise<BlikkUser[]> {
+  console.log("📥 Fetching all users from Blikk");
+
+  const firstPage = (await getUsers({
+    page: 1,
+    pageSize: 100,
+  })) as BlikkUserResponse;
+
+  if (!firstPage || !Array.isArray(firstPage.items)) {
+    throw new Error(
+      "Blikk returned an unexpected response when fetching users."
+    );
+  }
+
+  const users: BlikkUser[] = [...firstPage.items];
+
+  for (let page = 2; page <= firstPage.totalPages; page += 1) {
+    await wait(REQUEST_DELAY_MS);
+
+    const response = (await getUsers({
+      page,
+      pageSize: 100,
+    })) as BlikkUserResponse;
+
+    if (!response || !Array.isArray(response.items)) {
+      throw new Error(
+        `Blikk returned an unexpected response when fetching users on page ${page}.`
+      );
+    }
+
+    users.push(...response.items);
+  }
+
+  console.log(`✅ Fetched ${users.length} users from Blikk`);
+
+  return users;
+}
+
+async function getCachedUsers(): Promise<BlikkUser[]> {
+  const now = Date.now();
+
+  if (userCache && userCache.expiresAt > now) {
+    console.log("⚡ Using cached user list");
+    return userCache.users;
+  }
+
+  if (userLoadPromise) {
+    console.log("⏳ Waiting for ongoing user list fetch");
+    return userLoadPromise;
+  }
+
+  console.log("♻️ User cache is empty or expired");
+
+  const loadPromise = fetchAllUsers();
+  userLoadPromise = loadPromise;
+
+  try {
+    const users = await loadPromise;
+
+    userCache = {
+      users,
+      expiresAt: Date.now() + USER_CACHE_TTL_MS,
+    };
+
+    console.log("✅ User cache updated");
+
+    return users;
+  } finally {
+    if (userLoadPromise === loadPromise) {
+      userLoadPromise = null;
+    }
+  }
+}
+
 async function getPlanningUsersForPeriod(
   fromDate: string,
   toDate: string
@@ -204,10 +317,16 @@ async function getPlanningUsersForPeriod(
     pageSize: 100,
   })) as BlikkPlanningUserResponse;
 
+  if (!firstPage || !Array.isArray(firstPage.items)) {
+    throw new Error(
+      "Blikk returned an unexpected response when fetching planning users."
+    );
+  }
+
   const users: BlikkPlanningUser[] = [...firstPage.items];
 
   for (let page = 2; page <= firstPage.totalPages; page += 1) {
-    await wait(1100);
+    await wait(REQUEST_DELAY_MS);
 
     const response = (await getUsersWithResourcePlanning({
       fromDate,
@@ -215,6 +334,12 @@ async function getPlanningUsersForPeriod(
       page,
       pageSize: 100,
     })) as BlikkPlanningUserResponse;
+
+    if (!response || !Array.isArray(response.items)) {
+      throw new Error(
+        `Blikk returned an unexpected response when fetching planning users on page ${page}.`
+      );
+    }
 
     users.push(...response.items);
   }
@@ -329,20 +454,43 @@ export async function resolvePlanningUserId(
 export async function resolveUserId(
   userName: string
 ): Promise<string> {
-  const users = (await getUsers()) as BlikkUser[];
+  const normalizedUserName = normalize(userName);
 
-  const user = users.find((u) => {
-    const fullName =
-      u.fullName ??
-      u.name ??
-      `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim();
-
-    return fullName.toLowerCase() === userName.toLowerCase();
-  });
-
-  if (!user) {
-    throw new Error(`User '${userName}' not found.`);
+  if (!normalizedUserName) {
+    throw new Error("A user name is required.");
   }
 
-  return user.id;
+  const users = await getCachedUsers();
+
+  const exactMatch = users.find((user) => {
+    const fullName = getUserFullName(user);
+
+    return normalize(fullName) === normalizedUserName;
+  });
+
+  if (exactMatch) {
+    return String(exactMatch.id);
+  }
+
+  const partialMatches = users.filter((user) => {
+    const fullName = getUserFullName(user);
+
+    return normalize(fullName).includes(normalizedUserName);
+  });
+
+  if (partialMatches.length === 1) {
+    return String(partialMatches[0].id);
+  }
+
+  if (partialMatches.length > 1) {
+    const matchingNames = partialMatches
+      .map(getUserFullName)
+      .join(", ");
+
+    throw new Error(
+      `Multiple users match '${userName}': ${matchingNames}. Please specify the full user name.`
+    );
+  }
+
+  throw new Error(`User '${userName}' not found.`);
 }
