@@ -16,6 +16,7 @@ import {
 import {
   getAllActiveProjectBudgetStatuses,
   getProjectBudgetStatus,
+  getProjectBudgetStatusExcludingUsers,
 } from "../../../lib/blikk/budget";
 import { getProjectCatalogView } from "../../../lib/blikk/project-catalog";
 
@@ -547,6 +548,66 @@ const handler = createMcpHandler(
         } catch (error) {
           console.error(
             ":x: get_project_budget_status failed:",
+            error
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Blikk error: ${error.message}`
+                    : "Unknown Blikk error",
+              },
+            ],
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "get_project_budget_status_excluding_users",
+      {
+        title: "Get Project Budget Status Excluding Users",
+        description:
+          "Calculates a project's adjusted time budget after excluding the reported hours of selected users. Returns the original reported hours, excluded hours per user, adjusted reported hours, remaining budget and percentages. Accepts a full or partial project name and full or unique partial user names.",
+        inputSchema: {
+          project: z.string(),
+          excludeUsers: z.array(z.string()).min(1),
+        },
+      },
+      async ({ project, excludeUsers }) => {
+        console.log(
+          ":arrow_right: get_project_budget_status_excluding_users tool invoked"
+        );
+
+        try {
+          console.log(
+            ":arrow_right: Calling getProjectBudgetStatusExcludingUsers()"
+          );
+
+          const budgetStatus =
+            await getProjectBudgetStatusExcludingUsers(
+              project,
+              excludeUsers
+            );
+
+          console.log(
+            ":white_check_mark: getProjectBudgetStatusExcludingUsers() completed"
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(budgetStatus, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          console.error(
+            ":x: get_project_budget_status_excluding_users failed:",
             error
           );
 
