@@ -128,10 +128,12 @@ const handler = createMcpHandler(
       {
         title: "List Project Statuses",
         description:
-          "Returns a status summary and the first page of projects from the complete Blikk project catalog.",
-        inputSchema: {},
+          "Returns a status summary and the first page of projects from the complete Blikk project catalog. Set isCompleted to false to return projects that are not completed.",
+        inputSchema: {
+          isCompleted: z.boolean().optional(),
+        },
       },
-      async () => {
+      async ({ isCompleted }) => {
         console.log(
           ":arrow_right: list_project_statuses tool invoked"
         );
@@ -141,7 +143,9 @@ const handler = createMcpHandler(
             ":arrow_right: Calling getProjectCatalogView()"
           );
 
-          const result = await getProjectCatalogView({});
+          const result = await getProjectCatalogView({
+            isCompleted,
+          });
 
           console.log(
             ":white_check_mark: getProjectCatalogView() completed"
