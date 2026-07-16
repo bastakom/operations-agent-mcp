@@ -22,52 +22,6 @@ import { getProjectCatalogView } from "../../../lib/blikk/project-catalog";
 
 export const maxDuration = 300;
 
-type DiagnosticPagedResponse = {
-  items?: unknown[];
-};
-
-function describeValueStructure(
-  value: unknown,
-  depth = 0
-): unknown {
-  if (value === null) {
-    return "null";
-  }
-
-  if (value === undefined) {
-    return "undefined";
-  }
-
-  if (depth >= 6) {
-    return Array.isArray(value) ? "arrayarray" : typeof value;
-  }
-
-  if (Array.isArray(value)) {
-    if (value.length === 0) {
-      return [];
-    }
-
-    return [
-      describeValueStructure(value[0], depth + 1),
-    ];
-  }
-
-  if (typeof value === "object") {
-    const structure: Record<string, unknown> = {};
-
-    for (const [key, nestedValue] of Object.entries(value)) {
-      structure[key] = describeValueStructure(
-        nestedValue,
-        depth + 1
-      );
-    }
-
-    return structure;
-  }
-
-  return typeof value;
-}
-
 const handler = createMcpHandler(
   (server) => {
     console.log(":rocket: MCP server initialized");
@@ -92,83 +46,6 @@ const handler = createMcpHandler(
         };
       }
     );
-
-    server.registerTool(
-  "inspect_time_report_structure",
-  {
-    title: "Inspect Time Report Structure",
-    description:
-      "Returns only the anonymized field names and data types of a Blikk time report. It never returns actual values, names, IDs, comments or reported hours. This is a temporary diagnostic tool.",
-    inputSchema: {
-      projectId: z.string(),
-    },
-  },
-  async ({ projectId }) => {
-    console.log(
-      ":arrow_right: inspect_time_report_structure tool invoked"
-    );
-
-    try {
-      const response = (await getTimeReports({
-        projectId,
-        page: 1,
-        pageSize: 1,
-      })) as DiagnosticPagedResponse;
-
-      if (
-        !response ||
-        !Array.isArray(response.items) ||
-        response.items.length === 0
-      ) {
-        throw new Error(
-          `No time reports were found for project ID '${projectId}'.`
-        );
-      }
-
-      const structure = describeValueStructure(
-        response.items[0]
-      );
-
-      console.log(
-        ":white_check_mark: Time report structure inspected"
-      );
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(
-              {
-                projectId: "[redacted]",
-                valuesIncluded: false,
-                structure,
-              },
-              null,
-              2
-            ),
-          },
-        ],
-      };
-    } catch (error) {
-      console.error(
-        ":x: inspect_time_report_structure failed:",
-        error
-      );
-
-      return {
-        content: [
-          {
-            type: "text",
-            text:
-              error instanceof Error
-                ? `Blikk error: ${error.message}`
-                : "Unknown Blikk error",
-          },
-        ],
-      };
-    }
-  }
-);
 
     server.registerTool(
       "get_users",
