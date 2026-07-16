@@ -33,6 +33,8 @@ const handler = createMcpHandler(
       }
     );
 
+    
+
     server.registerTool(
       "get_users",
       {
@@ -277,4 +279,63 @@ const handler = createMcpHandler(
   }
 );
 
-export { handler as GET, handler as POST, handler as DELETE };
+const handler = createMcpHandler(
+  (server) => {
+    // Alla dina tools ligger kvar här.
+  },
+  {},
+  {
+    basePath: "/api",
+    verboseLogs: true,
+    maxDuration: 60,
+  }
+);
+
+function isAuthorized(request: Request): boolean {
+  const expectedApiKey = process.env.MCP_API_KEY;
+
+  if (!expectedApiKey) {
+    console.error("MCP_API_KEY is missing in Vercel");
+    return false;
+  }
+
+  const authorization = request.headers.get("authorization");
+
+  if (!authorization?.startsWith("Bearer ")) {
+    return false;
+  }
+
+  const providedApiKey = authorization.slice(7).trim();
+
+  return providedApiKey === expectedApiKey;
+}
+
+function unauthorizedResponse(): Response {
+  return Response.json(
+    {
+      error: "Unauthorized",
+      message: "A valid Bearer token is required.",
+    },
+    {
+      status: 401,
+      headers: {
+        "WWW-Authenticate": 'Bearer realm="operations-agent-mcp"',
+      },
+    }
+  );
+}
+
+async function authenticatedHandler(request: Request): Promise<Response> {
+  if (!isAuthorized(request)) {
+    console.warn("Unauthorized MCP request blocked");
+    return unauthorizedResponse();
+  }
+
+  return handler(request);
+}
+
+export {
+  authenticatedHandler as GET,
+  authenticatedHandler as POST,
+  authenticatedHandler as DELETE,
+};
