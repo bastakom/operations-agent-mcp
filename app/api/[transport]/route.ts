@@ -8,8 +8,13 @@ import {
   getProjectTimeCalculation,
 } from "../../../lib/blikk/endpoints";
 import { resolveProjectId } from "../../../lib/blikk/resolvers";
-import { getProjectBudgetStatus } from "../../../lib/blikk/budget";
+import {
+  getAllActiveProjectBudgetStatuses,
+  getProjectBudgetStatus,
+} from "../../../lib/blikk/budget";
 import { getProjectCatalogView } from "../../../lib/blikk/project-catalog";
+
+export const maxDuration = 300;
 
 const handler = createMcpHandler(
   (server) => {
@@ -403,12 +408,66 @@ const handler = createMcpHandler(
         }
       }
     );
+
+    server.registerTool(
+      "get_all_active_project_budget_statuses",
+      {
+        title: "Get All Active Project Budget Statuses",
+        description:
+          "Builds a complete time budget report for every active project in Blikk. Returns project status, project manager, budget hours, reported hours, remaining hours, percentages and over-budget status. The first run can take several minutes; completed reports are cached for 30 minutes.",
+        inputSchema: {},
+      },
+      async () => {
+        console.log(
+          ":arrow_right: get_all_active_project_budget_statuses tool invoked"
+        );
+
+        try {
+          console.log(
+            ":arrow_right: Calling getAllActiveProjectBudgetStatuses()"
+          );
+
+          const report =
+            await getAllActiveProjectBudgetStatuses();
+
+          console.log(
+            ":white_check_mark: getAllActiveProjectBudgetStatuses() completed"
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(report, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          console.error(
+            ":x: get_all_active_project_budget_statuses failed:",
+            error
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Blikk error: ${error.message}`
+                    : "Unknown Blikk error",
+              },
+            ],
+          };
+        }
+      }
+    );
   },
   {},
   {
     basePath: "/api",
     verboseLogs: true,
-    maxDuration: 60,
+    maxDuration: 300,
   }
 );
 
