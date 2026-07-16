@@ -13,6 +13,7 @@ type PagedResponseSummary = {
   itemCount?: number;
   totalItemCount?: number;
   totalPages?: number;
+  items?: unknown[];
 };
 
 function buildUrl(path: string, query?: QueryParams): string {
@@ -41,7 +42,56 @@ function buildUrl(path: string, query?: QueryParams): string {
   return url.toString();
 }
 
-function logResponseBody(text: string): void {
+function describeValueStructure(
+  value: unknown,
+  depth = 0
+): unknown {
+  if (value === null) {
+    return "null";
+  }
+
+  if (value === undefined) {
+    return "undefined";
+  }
+
+  if (depth >= 6) {
+    if (Array.isArray(value)) {
+      return "array";
+    }
+
+    return typeof value;
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return [];
+    }
+
+    return [
+      describeValueStructure(value[0], depth + 1),
+    ];
+  }
+
+  if (typeof value === "object") {
+    const structure: Record<string, unknown> = {};
+
+    for (const [key, nestedValue] of Object.entries(value)) {
+      structure[key] = describeValueStructure(
+        nestedValue,
+        depth + 1
+      );
+    }
+
+    return structure;
+  }
+
+  return typeof value;
+}
+
+function logResponseBody(
+  text: string,
+  path: string
+): void {
   if (!text) {
     console.log("ℹ️ Empty response body");
     return;
@@ -64,6 +114,21 @@ function logResponseBody(text: string): void {
         totalItemCount: parsed.totalItemCount,
         totalPages: parsed.totalPages,
       });
+
+      if (
+        path === "/v1/Core/TimeReports" &&
+        Array.isArray(parsed.items) &&
+        parsed.items.length > 0
+      ) {
+        console.log(
+          "🔎 Time report field structure:",
+          JSON.stringify(
+            describeValueStructure(parsed.items[0]),
+            null,
+            2
+          )
+        );
+      }
 
       return;
     }
@@ -121,7 +186,7 @@ export async function blikkGet<T>(
     );
   }
 
-  logResponseBody(text);
+  logResponseBody(text, path);
 
   if (!text) {
     return null as T;
