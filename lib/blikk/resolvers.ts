@@ -22,6 +22,12 @@ type BlikkUser = {
   name?: string;
 };
 
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
+}
+
 export async function resolveProjectId(
   projectName: string
 ): Promise<string> {
@@ -36,25 +42,18 @@ export async function resolveProjectId(
     pageSize: 100,
   })) as BlikkProjectResponse;
 
-  const remainingPageNumbers = Array.from(
-    { length: Math.max(firstPage.totalPages - 1, 0) },
-    (_, index) => index + 2
-  );
+  const projects: BlikkProject[] = [...firstPage.items];
 
-  const remainingPages = await Promise.all(
-    remainingPageNumbers.map(
-      async (page) =>
-        (await getProjects({
-          page,
-          pageSize: 100,
-        })) as BlikkProjectResponse
-    )
-  );
+  for (let page = 2; page <= firstPage.totalPages; page += 1) {
+    await wait(1100);
 
-  const projects = [
-    ...firstPage.items,
-    ...remainingPages.flatMap((response) => response.items),
-  ];
+    const response = (await getProjects({
+      page,
+      pageSize: 100,
+    })) as BlikkProjectResponse;
+
+    projects.push(...response.items);
+  }
 
   const exactMatch = projects.find(
     (project) =>
