@@ -6,6 +6,7 @@ import {
   getTimeReports,
   getUserDayStatistics,
   getProjectTimeCalculation,
+  getUsersWithResourcePlanning,
 } from "../../../lib/blikk/endpoints";
 import { resolveProjectId } from "../../../lib/blikk/resolvers";
 import {
@@ -68,6 +69,65 @@ const handler = createMcpHandler(
           };
         } catch (error) {
           console.error(":x: get_users failed:", error);
+
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Blikk error: ${error.message}`
+                    : "Unknown Blikk error",
+              },
+            ],
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "get_users_with_resource_planning",
+      {
+        title: "Get Users With Resource Planning",
+        description:
+          "Returns all Blikk users who have resource planning within an inclusive date range. Dates must use the YYYY-MM-DD format.",
+        inputSchema: {
+          fromDate: z.string(),
+          toDate: z.string(),
+        },
+      },
+      async ({ fromDate, toDate }) => {
+        console.log(
+          ":arrow_right: get_users_with_resource_planning tool invoked"
+        );
+
+        try {
+          console.log(
+            ":arrow_right: Calling getUsersWithResourcePlanning()"
+          );
+
+          const users = await getUsersWithResourcePlanning({
+            fromDate,
+            toDate,
+          });
+
+          console.log(
+            ":white_check_mark: getUsersWithResourcePlanning() completed"
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(users, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          console.error(
+            ":x: get_users_with_resource_planning failed:",
+            error
+          );
 
           return {
             content: [
