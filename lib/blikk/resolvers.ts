@@ -1,8 +1,23 @@
 import { getProjects, getUsers } from "./endpoints";
 
-type BlikkProject = {
+type BlikkProjectStatus = {
+  name: string;
+  isCompletedStatus: boolean;
+};
+
+type BlikkProjectCustomer = {
   id: number | string;
+  name: string;
+};
+
+type BlikkProjectApiItem = {
+  id: number | string;
+  orderNumber?: string | null;
   title: string;
+  status?: BlikkProjectStatus | null;
+  customer?: BlikkProjectCustomer | null;
+  startDate?: string | null;
+  endDate?: string | null;
 };
 
 type BlikkProjectResponse = {
@@ -11,7 +26,7 @@ type BlikkProjectResponse = {
   itemCount: number;
   totalItemCount: number;
   totalPages: number;
-  items: BlikkProject[];
+  items: BlikkProjectApiItem[];
 };
 
 type BlikkUser = {
@@ -22,15 +37,27 @@ type BlikkUser = {
   name?: string;
 };
 
+export type ProjectCatalogItem = {
+  id: string;
+  orderNumber: string | null;
+  title: string;
+  status: string | null;
+  isCompleted: boolean | null;
+  customerId: string | null;
+  customerName: string | null;
+  startDate: string | null;
+  endDate: string | null;
+};
+
 type ProjectCache = {
-  projects: BlikkProject[];
+  projects: ProjectCatalogItem[];
   expiresAt: number;
 };
 
 const PROJECT_CACHE_TTL_MS = 10 * 60 * 1000;
 
 let projectCache: ProjectCache | null = null;
-let projectLoadPromise: Promise<BlikkProject[]> | null = null;
+let projectLoadPromise: Promise<ProjectCatalogItem[]> | null = null;
 
 function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => {
@@ -38,7 +65,29 @@ function wait(milliseconds: number): Promise<void> {
   });
 }
 
-async function fetchAllProjects(): Promise<BlikkProject[]> {
+function toCatalogItem(
+  project: BlikkProjectApiItem
+): ProjectCatalogItem {
+  return {
+    id: String(project.id),
+    orderNumber: project.orderNumber ?? null,
+    title: project.title.trim(),
+    status: project.status?.name ?? null,
+    isCompleted:
+      typeof project.status?.isCompletedStatus === "boolean"
+        ? project.status.isCompletedStatus
+        : null,
+    customerId:
+      project.customer?.id !== undefined
+        ? String(project.customer.id)
+        : null,
+    customerName: project.customer?.name ?? null,
+    startDate: project.startDate ?? null,
+    endDate: project.endDate ?? null,
+  };
+}
+
+async function fetchAllProjects(): Promise<ProjectCatalogItem[]> {
   console.log("📥 Fetching all projects from Blikk");
 
   const firstPage = (await getProjects({
@@ -46,7 +95,8 @@ async function fetchAllProjects(): Promise<BlikkProject[]> {
     pageSize: 100,
   })) as BlikkProjectResponse;
 
-  const projects: BlikkProject[] = [...firstPage.items];
+  const projects: ProjectCatalogItem[] =
+    firstPage.items.map(toCatalogItem);
 
   for (let page = 2; page <= firstPage.totalPages; page += 1) {
     await wait(1100);
@@ -56,7 +106,7 @@ async function fetchAllProjects(): Promise<BlikkProject[]> {
       pageSize: 100,
     })) as BlikkProjectResponse;
 
-    projects.push(...response.items);
+    projects.push(...response.items.map(toCatalogItem));
   }
 
   console.log(`✅ Fetched ${projects.length} projects from Blikk`);
@@ -64,7 +114,7 @@ async function fetchAllProjects(): Promise<BlikkProject[]> {
   return projects;
 }
 
-async function getCachedProjects(): Promise<BlikkProject[]> {
+async function getCachedProjects(): Promise<ProjectCatalogItem[]> {
   const now = Date.now();
 
   if (projectCache && projectCache.expiresAt > now) {
@@ -100,6 +150,12 @@ async function getCachedProjects(): Promise<BlikkProject[]> {
   }
 }
 
+export async function getProjectCatalog(): Promise<
+  ProjectCatalogItem[]
+> {
+  return getCachedProjects();
+}
+
 export async function resolveProjectId(
   projectName: string
 ): Promise<string> {
@@ -113,19 +169,19 @@ export async function resolveProjectId(
 
   const exactMatch = projects.find(
     (project) =>
-      project.title.trim().toLowerCase() === normalizedProjectName
+      project.title.toLowerCase() === normalizedProjectName
   );
 
   if (exactMatch) {
-    return String(exactMatch.id);
+    return exactMatch.id;
   }
 
   const partialMatches = projects.filter((project) =>
-    project.title.trim().toLowerCase().includes(normalizedProjectName)
+    project.title.toLowerCase().includes(normalizedProjectName)
   );
 
   if (partialMatches.length === 1) {
-    return String(partialMatches[0].id);
+    return partialMatches[0].id;
   }
 
   if (partialMatches.length > 1) {
@@ -141,7 +197,9 @@ export async function resolveProjectId(
   throw new Error(`Project '${projectName}' not found.`);
 }
 
-export async function resolveUserId(userName: string): Promise<string> {
+export async function resolveUserId(
+  userName: string
+): Promise<string> {
   const users = (await getUsers()) as BlikkUser[];
 
   const user = users.find((u) => {
