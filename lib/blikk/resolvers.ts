@@ -19,6 +19,15 @@ type BlikkProjectManager = {
   name: string;
 };
 
+type BlikkProjectMetadata =
+  | string
+  | {
+      id?: number | string | null;
+      name?: string | null;
+      title?: string | null;
+      color?: string | null;
+    };
+
 type BlikkProjectApiItem = {
   id: number | string;
   orderNumber?: string | null;
@@ -28,6 +37,10 @@ type BlikkProjectApiItem = {
   projectManager?: BlikkProjectManager | null;
   startDate?: string | null;
   endDate?: string | null;
+  category?: BlikkProjectMetadata | null;
+  tags?: BlikkProjectMetadata[] | null;
+  projectCollection?: BlikkProjectMetadata | null;
+  costCenter?: BlikkProjectMetadata | null;
 };
 
 type BlikkProjectResponse = {
@@ -72,6 +85,12 @@ type BlikkPlanningUserResponse = {
   items: BlikkPlanningUser[];
 };
 
+export type ProjectMetadataItem = {
+  id: string | null;
+  name: string;
+  color: string | null;
+};
+
 export type ProjectCatalogItem = {
   id: string;
   orderNumber: string | null;
@@ -84,6 +103,10 @@ export type ProjectCatalogItem = {
   projectManagerName: string | null;
   startDate: string | null;
   endDate: string | null;
+  category: ProjectMetadataItem | null;
+  tags: ProjectMetadataItem[];
+  projectCollection: ProjectMetadataItem | null;
+  costCenter: ProjectMetadataItem | null;
 };
 
 type ProjectCache = {
@@ -130,6 +153,41 @@ function getPlanningUserFullName(
   return `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim();
 }
 
+function toMetadataItem(
+  value: BlikkProjectMetadata | null | undefined
+): ProjectMetadataItem | null {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    const name = value.trim();
+
+    return name
+      ? {
+          id: null,
+          name,
+          color: null,
+        }
+      : null;
+  }
+
+  const name = (value.name ?? value.title ?? "").trim();
+
+  if (!name) {
+    return null;
+  }
+
+  return {
+    id:
+      value.id !== undefined && value.id !== null
+        ? String(value.id)
+        : null,
+    name,
+    color: value.color ?? null,
+  };
+}
+
 function toCatalogItem(
   project: BlikkProjectApiItem
 ): ProjectCatalogItem {
@@ -154,6 +212,16 @@ function toCatalogItem(
     projectManagerName: project.projectManager?.name ?? null,
     startDate: project.startDate ?? null,
     endDate: project.endDate ?? null,
+    category: toMetadataItem(project.category),
+    tags: (project.tags ?? [])
+      .map(toMetadataItem)
+      .filter(
+        (tag): tag is ProjectMetadataItem => tag !== null
+      ),
+    projectCollection: toMetadataItem(
+      project.projectCollection
+    ),
+    costCenter: toMetadataItem(project.costCenter),
   };
 }
 
@@ -356,6 +424,14 @@ export async function getProjectCatalog(): Promise<
 export async function resolveProjectId(
   projectName: string
 ): Promise<string> {
+  const project = await resolveProject(projectName);
+
+  return project.id;
+}
+
+export async function resolveProject(
+  projectName: string
+): Promise<ProjectCatalogItem> {
   const normalizedProjectName = normalize(projectName);
 
   if (!normalizedProjectName) {
@@ -370,7 +446,7 @@ export async function resolveProjectId(
   );
 
   if (exactMatch) {
-    return exactMatch.id;
+    return exactMatch;
   }
 
   const partialMatches = projects.filter((project) =>
@@ -378,7 +454,7 @@ export async function resolveProjectId(
   );
 
   if (partialMatches.length === 1) {
-    return partialMatches[0].id;
+    return partialMatches[0];
   }
 
   if (partialMatches.length > 1) {
