@@ -1,4 +1,8 @@
-import { getProjects, getUsers } from "./endpoints";
+import {
+  getProjects,
+  getUsers,
+  getUsersWithResourcePlanning,
+} from "./endpoints";
 
 type BlikkProjectStatus = {
   name: string;
@@ -43,6 +47,22 @@ type BlikkUser = {
   name?: string;
 };
 
+type BlikkPlanningUser = {
+  id: number | string;
+  employmentNumber?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+};
+
+type BlikkPlanningUserResponse = {
+  page: number;
+  pageSize: number;
+  itemCount: number;
+  totalItemCount: number;
+  totalPages: number;
+  items: BlikkPlanningUser[];
+};
+
 export type ProjectCatalogItem = {
   id: string;
   orderNumber: string | null;
@@ -71,6 +91,16 @@ function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, milliseconds);
   });
+}
+
+function normalize(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function getPlanningUserFullName(
+  user: BlikkPlanningUser
+): string {
+  return `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim();
 }
 
 function toCatalogItem(
@@ -163,6 +193,35 @@ async function getCachedProjects(): Promise<ProjectCatalogItem[]> {
   }
 }
 
+async function getPlanningUsersForPeriod(
+  fromDate: string,
+  toDate: string
+): Promise<BlikkPlanningUser[]> {
+  const firstPage = (await getUsersWithResourcePlanning({
+    fromDate,
+    toDate,
+    page: 1,
+    pageSize: 100,
+  })) as BlikkPlanningUserResponse;
+
+  const users: BlikkPlanningUser[] = [...firstPage.items];
+
+  for (let page = 2; page <= firstPage.totalPages; page += 1) {
+    await wait(1100);
+
+    const response = (await getUsersWithResourcePlanning({
+      fromDate,
+      toDate,
+      page,
+      pageSize: 100,
+    })) as BlikkPlanningUserResponse;
+
+    users.push(...response.items);
+  }
+
+  return users;
+}
+
 export async function getProjectCatalog(): Promise<
   ProjectCatalogItem[]
 > {
@@ -172,7 +231,7 @@ export async function getProjectCatalog(): Promise<
 export async function resolveProjectId(
   projectName: string
 ): Promise<string> {
-  const normalizedProjectName = projectName.trim().toLowerCase();
+  const normalizedProjectName = normalize(projectName);
 
   if (!normalizedProjectName) {
     throw new Error("A project name is required.");
@@ -182,7 +241,7 @@ export async function resolveProjectId(
 
   const exactMatch = projects.find(
     (project) =>
-      project.title.toLowerCase() === normalizedProjectName
+      normalize(project.title) === normalizedProjectName
   );
 
   if (exactMatch) {
@@ -190,7 +249,7 @@ export async function resolveProjectId(
   }
 
   const partialMatches = projects.filter((project) =>
-    project.title.toLowerCase().includes(normalizedProjectName)
+    normalize(project.title).includes(normalizedProjectName)
   );
 
   if (partialMatches.length === 1) {
@@ -208,6 +267,63 @@ export async function resolveProjectId(
   }
 
   throw new Error(`Project '${projectName}' not found.`);
+}
+
+export async function resolvePlanningUserId(
+  userName: string,
+  fromDate: string,
+  toDate: string
+): Promise<string> {
+  const normalizedUserName = normalize(userName);
+
+  if (!normalizedUserName) {
+    throw new Error("A user name is required.");
+  }
+
+  if (!fromDate || !toDate) {
+    throw new Error(
+      "Both fromDate and toDate are required to resolve a planning user."
+    );
+  }
+
+  const users = await getPlanningUsersForPeriod(
+    fromDate,
+    toDate
+  );
+
+  const exactMatch = users.find((user) => {
+    const fullName = getPlanningUserFullName(user);
+
+    return normalize(fullName) === normalizedUserName;
+  });
+
+  if (exactMatch) {
+    return String(exactMatch.id);
+  }
+
+  const partialMatches = users.filter((user) => {
+    const fullName = getPlanningUserFullName(user);
+
+    return normalize(fullName).includes(normalizedUserName);
+  });
+
+  if (partialMatches.length === 1) {
+    return String(partialMatches[0].id);
+  }
+
+  if (partialMatches.length > 1) {
+    const matchingNames = partialMatches
+      .map(getPlanningUserFullName)
+      .join(", ");
+
+    throw new Error(
+      `Multiple users with resource planning match '${userName}': ${matchingNames}. Please specify the full name.`
+    );
+  }
+
+  throw new Error(
+    `No user with resource planning matching '${userName}' was found between ${fromDate} and ${toDate}.`
+  );
 }
 
 export async function resolveUserId(
