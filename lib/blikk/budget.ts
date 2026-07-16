@@ -6,6 +6,7 @@ import {
   getProjectCatalog,
   ProjectCatalogItem,
   resolveProjectId,
+  resolveUserId,
 } from "./resolvers";
 
 type ProjectTimeCalculation = {
@@ -40,6 +41,27 @@ export type ProjectBudgetStatus = {
   remainingPercent: number | null;
   isOverBudget: boolean;
   overBudgetHours: number;
+};
+
+export type ExcludedUserBudgetItem = {
+  requestedName: string;
+  userId: string;
+  reportedHours: number;
+};
+
+export type ProjectBudgetStatusExcludingUsers = {
+  requestedProject: string;
+  projectId: string;
+  budgetHours: number;
+  totalReportedHours: number;
+  excludedReportedHours: number;
+  adjustedReportedHours: number;
+  remainingHours: number;
+  usedPercent: number | null;
+  remainingPercent: number | null;
+  isOverBudget: boolean;
+  overBudgetHours: number;
+  excludedUsers: ExcludedUserBudgetItem[];
 };
 
 export type ActiveProjectBudgetItem = {
@@ -144,17 +166,46 @@ async function withRateLimitRetry<T>(
   throw lastError;
 }
 
+function validateTimeReportResponse(
+  response: TimeReportResponse,
+  operationName: string
+): void {
+  if (!response || !Array.isArray(response.items)) {
+    throw new Error(
+      `Blikk returned an unexpected response for ${operationName}.`
+    );
+  }
+}
+
+function sumReportedHours(reports: TimeReport[]): number {
+  return reports.reduce(
+    (sum, report) => sum + Number(report.hours || 0),
+    0
+  );
+}
+
 async function getAllProjectTimeReports(
-  projectId: string
+  projectId: string,
+  userId?: string
 ): Promise<TimeReport[]> {
+  const operationDescription = userId
+    ? `project ${projectId} and user ${userId}`
+    : `project ${projectId}`;
+
   const firstPage = await withRateLimitRetry(
     async () =>
       (await getTimeReports({
         projectId,
+        userId,
         page: 1,
         pageSize: 100,
       })) as TimeReportResponse,
-    `Time reports for project ${projectId}, page 1`
+    `Time reports for ${operationDescription}, page 1`
+  );
+
+  validateTimeReportResponse(
+    firstPage,
+    `time reports for ${operationDescription}, page 1`
   );
 
   const reports: TimeReport[] = [...firstPage.items];
@@ -166,10 +217,16 @@ async function getAllProjectTimeReports(
       async () =>
         (await getTimeReports({
           projectId,
+          userId,
           page,
           pageSize: 100,
         })) as TimeReportResponse,
-      `Time reports for project ${projectId}, page ${page}`
+      `Time reports for ${operationDescription}, page ${page}`
+    );
+
+    validateTimeReportResponse(
+      response,
+      `time reports for ${operationDescription}, page ${page}`
     );
 
     reports.push(...response.items);
@@ -178,10 +235,10 @@ async function getAllProjectTimeReports(
   return reports;
 }
 
-async function getProjectBudgetStatusById(
+async function getProjectTimeBudget(
   projectId: string,
   projectName: string
-): Promise<ProjectBudgetStatus> {
+): Promise<number> {
   const calculation = await withRateLimitRetry(
     async () =>
       (await getProjectTimeCalculation(
@@ -199,16 +256,22 @@ async function getProjectBudgetStatusById(
     );
   }
 
+  return calculation.total;
+}
+
+async function getProjectBudgetStatusById(
+  projectId: string,
+  projectName: string
+): Promise<ProjectBudgetStatus> {
+  const budgetHours = await getProjectTimeBudget(
+    projectId,
+    projectName
+  );
+
   await wait(REQUEST_DELAY_MS);
 
   const reports = await getAllProjectTimeReports(projectId);
-
-  const budgetHours = calculation.total;
-
-  const reportedHours = reports.reduce(
-    (sum, report) => sum + Number(report.hours || 0),
-    0
-  );
+  const reportedHours = sumReportedHours(reports);
 
   const remainingHours = budgetHours - reportedHours;
   const isOverBudget = remainingHours < 0;
@@ -248,6 +311,120 @@ export async function getProjectBudgetStatus(
   const projectId = await resolveProjectId(projectName);
 
   return getProjectBudgetStatusById(projectId, projectName);
+}
+
+export async function getProjectBudgetStatusExcludingUsers(
+  projectName: string,
+  excludedUserNames: string[]
+): Promise<ProjectBudgetStatusExcludingUsers> {
+  const cleanedUserNames = excludedUserNames
+    .map((userName) => userName.trim())
+    .filter((userName) => userName.length > 0);
+
+  if (cleanedUserNames.length === 0) {
+    throw new Error(
+      "At least one user name must be provided for exclusion."
+    );
+  }
+
+  console.log(
+    `Calculating budget for '${projectName}' excluding: ${cleanedUserNames.join(
+      ", "
+    )}`
+  );
+
+  const projectId = await resolveProjectId(projectName);
+
+  const budgetHours = await getProjectTimeBudget(
+    projectId,
+    projectName
+  );
+
+  await wait(REQUEST_DELAY_MS);
+
+  const allReports = await getAllProjectTimeReports(projectId);
+  const totalReportedHours = sumReportedHours(allReports);
+
+  const excludedUsers: ExcludedUserBudgetItem[] = [];
+  const resolvedUserIds = new Set<string>();
+
+  for (const requestedName of cleanedUserNames) {
+    const userId = await resolveUserId(requestedName);
+
+    if (resolvedUserIds.has(userId)) {
+      console.log(
+        `Skipping duplicate excluded user '${requestedName}' with ID ${userId}`
+      );
+      continue;
+    }
+
+    resolvedUserIds.add(userId);
+
+    await wait(REQUEST_DELAY_MS);
+
+    const userReports = await getAllProjectTimeReports(
+      projectId,
+      userId
+    );
+
+    const reportedHours = sumReportedHours(userReports);
+
+    excludedUsers.push({
+      requestedName,
+      userId,
+      reportedHours: round(reportedHours),
+    });
+  }
+
+  const excludedReportedHours = excludedUsers.reduce(
+    (sum, user) => sum + user.reportedHours,
+    0
+  );
+
+  if (excludedReportedHours > totalReportedHours + 0.01) {
+    throw new Error(
+      "The excluded reported hours are greater than the project's total reported hours. Check that Blikk is applying the user filter correctly."
+    );
+  }
+
+  const adjustedReportedHours =
+    totalReportedHours - excludedReportedHours;
+
+  const remainingHours =
+    budgetHours - adjustedReportedHours;
+
+  const isOverBudget = remainingHours < 0;
+
+  const usedPercent =
+    budgetHours > 0
+      ? (adjustedReportedHours / budgetHours) * 100
+      : null;
+
+  const remainingPercent =
+    budgetHours > 0
+      ? (remainingHours / budgetHours) * 100
+      : null;
+
+  return {
+    requestedProject: projectName,
+    projectId,
+    budgetHours: round(budgetHours),
+    totalReportedHours: round(totalReportedHours),
+    excludedReportedHours: round(excludedReportedHours),
+    adjustedReportedHours: round(adjustedReportedHours),
+    remainingHours: round(remainingHours),
+    usedPercent:
+      usedPercent === null ? null : round(usedPercent),
+    remainingPercent:
+      remainingPercent === null
+        ? null
+        : round(remainingPercent),
+    isOverBudget,
+    overBudgetHours: isOverBudget
+      ? round(Math.abs(remainingHours))
+      : 0,
+    excludedUsers,
+  };
 }
 
 function createSuccessfulItem(
