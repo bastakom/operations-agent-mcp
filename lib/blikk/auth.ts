@@ -25,7 +25,6 @@ export async function getBlikkAccessToken(): Promise<string> {
   const config = getBlikkConfig();
 
   console.log("🌍 Base URL:", config.baseUrl);
-  console.log("🆔 App ID:", config.appId);
 
   const auth = Buffer.from(
     `${config.appId}:${config.appSecret}`
@@ -45,13 +44,14 @@ export async function getBlikkAccessToken(): Promise<string> {
 
   const text = await response.text();
 
-  console.log("📄 Auth response body:");
-  console.log(text);
-
   if (!response.ok) {
-    console.error("❌ Blikk authentication failed");
+    console.error("❌ Blikk authentication failed", {
+      status: response.status,
+    });
 
-    throw new Error(`Blikk auth failed (${response.status}): ${text}`);
+    throw new Error(
+      `Blikk authentication failed with status ${response.status}.`
+    );
   }
 
   let json: TokenResponse;
@@ -62,7 +62,7 @@ export async function getBlikkAccessToken(): Promise<string> {
   } catch {
     console.error("❌ Invalid JSON from auth endpoint");
 
-    throw new Error(`Blikk auth returned invalid JSON: ${text}`);
+    throw new Error("Blikk authentication returned invalid JSON.");
   }
 
   const token = json.access_token || json.accessToken || json.token;
@@ -71,7 +71,7 @@ export async function getBlikkAccessToken(): Promise<string> {
     console.error("❌ No access token returned");
 
     throw new Error(
-      `Blikk auth response did not contain token. Response: ${text}`
+      "Blikk authentication response did not contain an access token."
     );
   }
 
@@ -83,7 +83,6 @@ export async function getBlikkAccessToken(): Promise<string> {
   };
 
   console.log("✅ New access token cached");
-  console.log("🔑 Token length:", token.length);
   console.log("⏱️ Expires in:", expiresInSeconds, "seconds");
 
   return token;
