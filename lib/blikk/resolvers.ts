@@ -1,8 +1,17 @@
 import { getProjects, getUsers } from "./endpoints";
 
 type BlikkProject = {
-  id: string;
-  name: string;
+  id: number | string;
+  title: string;
+};
+
+type BlikkProjectResponse = {
+  page: number;
+  pageSize: number;
+  itemCount: number;
+  totalItemCount: number;
+  totalPages: number;
+  items: BlikkProject[];
 };
 
 type BlikkUser = {
@@ -16,30 +25,57 @@ type BlikkUser = {
 export async function resolveProjectId(
   projectName: string
 ): Promise<string> {
-  const projects = (await getProjects()) as BlikkProject[];
-
   const normalizedProjectName = projectName.trim().toLowerCase();
+
+  if (!normalizedProjectName) {
+    throw new Error("A project name is required.");
+  }
+
+  const firstPage = (await getProjects({
+    page: 1,
+    pageSize: 100,
+  })) as BlikkProjectResponse;
+
+  const remainingPageNumbers = Array.from(
+    { length: Math.max(firstPage.totalPages - 1, 0) },
+    (_, index) => index + 2
+  );
+
+  const remainingPages = await Promise.all(
+    remainingPageNumbers.map(
+      async (page) =>
+        (await getProjects({
+          page,
+          pageSize: 100,
+        })) as BlikkProjectResponse
+    )
+  );
+
+  const projects = [
+    ...firstPage.items,
+    ...remainingPages.flatMap((response) => response.items),
+  ];
 
   const exactMatch = projects.find(
     (project) =>
-      project.name.trim().toLowerCase() === normalizedProjectName
+      project.title.trim().toLowerCase() === normalizedProjectName
   );
 
   if (exactMatch) {
-    return exactMatch.id;
+    return String(exactMatch.id);
   }
 
   const partialMatches = projects.filter((project) =>
-    project.name.trim().toLowerCase().includes(normalizedProjectName)
+    project.title.trim().toLowerCase().includes(normalizedProjectName)
   );
 
   if (partialMatches.length === 1) {
-    return partialMatches[0].id;
+    return String(partialMatches[0].id);
   }
 
   if (partialMatches.length > 1) {
     const matchingNames = partialMatches
-      .map((project) => project.name)
+      .map((project) => project.title)
       .join(", ");
 
     throw new Error(
