@@ -9,7 +9,10 @@ import {
   getUsersWithResourcePlanning,
   getPlanningSummariesForUser,
 } from "../../../lib/blikk/endpoints";
-import { resolveProjectId } from "../../../lib/blikk/resolvers";
+import {
+  resolvePlanningUserId,
+  resolveProjectId,
+} from "../../../lib/blikk/resolvers";
 import {
   getAllActiveProjectBudgetStatuses,
   getProjectBudgetStatus,
@@ -150,19 +153,33 @@ const handler = createMcpHandler(
       {
         title: "Get User Planning Summaries",
         description:
-          "Returns a Blikk user's planned hours grouped by project for an inclusive date range. Requires the numeric Blikk user ID. Dates must use the YYYY-MM-DD format.",
+          "Returns a Blikk user's planned hours grouped by project for an inclusive date range. Accepts a full name or a unique partial name, such as 'Richard'. Dates must use the YYYY-MM-DD format.",
         inputSchema: {
-          userId: z.string(),
+          user: z.string(),
           fromDate: z.string(),
           toDate: z.string(),
         },
       },
-      async ({ userId, fromDate, toDate }) => {
+      async ({ user, fromDate, toDate }) => {
         console.log(
           ":arrow_right: get_user_planning_summaries tool invoked"
         );
 
         try {
+          console.log(
+            ":arrow_right: Resolving user name to Blikk user ID"
+          );
+
+          const userId = await resolvePlanningUserId(
+            user,
+            fromDate,
+            toDate
+          );
+
+          console.log(
+            `:white_check_mark: Resolved '${user}' to user ID ${userId}`
+          );
+
           console.log(
             ":arrow_right: Calling getPlanningSummariesForUser()"
           );
@@ -181,7 +198,17 @@ const handler = createMcpHandler(
             content: [
               {
                 type: "text",
-                text: JSON.stringify(summaries, null, 2),
+                text: JSON.stringify(
+                  {
+                    requestedUser: user,
+                    resolvedUserId: userId,
+                    fromDate,
+                    toDate,
+                    summaries,
+                  },
+                  null,
+                  2
+                ),
               },
             ],
           };
