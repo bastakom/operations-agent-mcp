@@ -9,7 +9,6 @@ import {
 } from "../../../lib/blikk/endpoints";
 import { resolveProjectId } from "../../../lib/blikk/resolvers";
 import { getProjectBudgetStatus } from "../../../lib/blikk/budget";
-import { getProjectCatalogView } from "../../../lib/blikk/project-catalog";
 
 const handler = createMcpHandler(
   (server) => {
@@ -84,7 +83,7 @@ const handler = createMcpHandler(
       {
         title: "Get Projects",
         description:
-          "Fetches only the first page of up to 100 projects from Blikk. Use list_project_statuses to search, filter, summarize or paginate through the complete project catalog.",
+          "Fetches the first page of up to 100 projects from Blikk.",
         inputSchema: {},
       },
       async () => {
@@ -107,113 +106,6 @@ const handler = createMcpHandler(
           };
         } catch (error) {
           console.error(":x: get_projects failed:", error);
-
-          return {
-            content: [
-              {
-                type: "text",
-                text:
-                  error instanceof Error
-                    ? `Blikk error: ${error.message}`
-                    : "Unknown Blikk error",
-              },
-            ],
-          };
-        }
-      }
-    );
-
-    server.registerTool(
-      "list_project_statuses",
-      {
-        title: "List Project Statuses",
-        description:
-          "Searches, filters, summarizes and paginates through the complete Blikk project catalog, including all projects across every API page. Returns project names, numbers, statuses, customers and dates. Use this for questions about all projects, active or completed projects, projects with a specific status, customer projects, status counts or project searches.",
-        inputSchema: {
-          query: z
-            .string()
-            .optional()
-            .describe(
-              "Optional search text matched against project title, project number, customer name and status."
-            ),
-          status: z
-            .string()
-            .optional()
-            .describe(
-              "Optional exact Blikk status name, for example Pågående, Avslutad or Uppstart."
-            ),
-          customer: z
-            .string()
-            .optional()
-            .describe(
-              "Optional full or partial customer name."
-            ),
-          isCompleted: z
-            .boolean()
-            .optional()
-            .describe(
-              "Set to true for completed projects or false for projects that are not completed."
-            ),
-          page: z
-            .number()
-            .int()
-            .min(1)
-            .optional()
-            .describe("Result page. Defaults to 1."),
-          pageSize: z
-            .number()
-            .int()
-            .min(1)
-            .max(100)
-            .optional()
-            .describe(
-              "Number of projects returned per result page. Defaults to 50 and cannot exceed 100."
-            ),
-        },
-      },
-      async ({
-        query,
-        status,
-        customer,
-        isCompleted,
-        page,
-        pageSize,
-      }) => {
-        console.log(
-          ":arrow_right: list_project_statuses tool invoked"
-        );
-
-        try {
-          console.log(
-            ":arrow_right: Calling getProjectCatalogView()"
-          );
-
-          const result = await getProjectCatalogView({
-            query,
-            status,
-            customer,
-            isCompleted,
-            page,
-            pageSize,
-          });
-
-          console.log(
-            ":white_check_mark: getProjectCatalogView() completed"
-          );
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(result, null, 2),
-              },
-            ],
-          };
-        } catch (error) {
-          console.error(
-            ":x: list_project_statuses failed:",
-            error
-          );
 
           return {
             content: [
