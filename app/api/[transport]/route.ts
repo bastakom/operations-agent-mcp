@@ -10,28 +10,59 @@ import {
 
 const handler = createMcpHandler(
   (server) => {
-    console.log("🚀 MCP server initialized");
+    // Alla dina tools ligger kvar här.
+  },
+  {},
+  {
+    basePath: "/api",
+    verboseLogs: true,
+    maxDuration: 60,
+  }
+);
 
-    server.registerTool(
-      "health_check",
-      {
-        title: "Health Check",
-        description: "Checks that the MCP server is alive and well.",
-        inputSchema: {},
+function isAuthorized(request: Request): boolean {
+  const expectedApiKey = process.env.MCP_API_KEY;
+
+  if (!expectedApiKey) {
+    console.error("MCP_API_KEY is missing in Vercel");
+    return false;
+  }
+
+  const authorization = request.headers.get("authorization");
+
+  if (!authorization?.startsWith("Bearer ")) {
+    return false;
+  }
+
+  const providedApiKey = authorization.slice(7).trim();
+
+  return providedApiKey === expectedApiKey;
+}
+
+function unauthorizedResponse(): Response {
+  return Response.json(
+    {
+      error: "Unauthorized",
+      message: "A valid Bearer token is required.",
+    },
+    {
+      status: 401,
+      headers: {
+        "WWW-Authenticate": 'Bearer realm="operations-agent-mcp"',
       },
-      async () => {
-        console.log("✅ health_check called");
+    }
+  );
+}
 
-        return {
-          content: [
-            {
-              type: "text",
-              text: "MCP server is alive 🚀",
-            },
-          ],
-        };
-      }
-    );
+async function authenticatedHandler(request: Request): Promise<Response> {
+  if (!isAuthorized(request)) {
+    console.warn("Unauthorized MCP request blocked");
+    return unauthorizedResponse();
+  }
+
+  return handler(request);
+}
+
 
     
 
@@ -279,63 +310,9 @@ const handler = createMcpHandler(
   }
 );
 
-const handler = createMcpHandler(
-  (server) => {
-    // Alla dina tools ligger kvar här.
-  },
-  {},
-  {
-    basePath: "/api",
-    verboseLogs: true,
-    maxDuration: 60,
-  }
-);
-
-function isAuthorized(request: Request): boolean {
-  const expectedApiKey = process.env.MCP_API_KEY;
-
-  if (!expectedApiKey) {
-    console.error("MCP_API_KEY is missing in Vercel");
-    return false;
-  }
-
-  const authorization = request.headers.get("authorization");
-
-  if (!authorization?.startsWith("Bearer ")) {
-    return false;
-  }
-
-  const providedApiKey = authorization.slice(7).trim();
-
-  return providedApiKey === expectedApiKey;
-}
-
-function unauthorizedResponse(): Response {
-  return Response.json(
-    {
-      error: "Unauthorized",
-      message: "A valid Bearer token is required.",
-    },
-    {
-      status: 401,
-      headers: {
-        "WWW-Authenticate": 'Bearer realm="operations-agent-mcp"',
-      },
-    }
-  );
-}
-
-async function authenticatedHandler(request: Request): Promise<Response> {
-  if (!isAuthorized(request)) {
-    console.warn("Unauthorized MCP request blocked");
-    return unauthorizedResponse();
-  }
-
-  return handler(request);
-}
-
-export {
+    export {
   authenticatedHandler as GET,
   authenticatedHandler as POST,
   authenticatedHandler as DELETE,
 };
+
