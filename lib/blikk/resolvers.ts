@@ -22,20 +22,24 @@ type BlikkUser = {
   name?: string;
 };
 
+type ProjectCache = {
+  projects: BlikkProject[];
+  expiresAt: number;
+};
+
+const PROJECT_CACHE_TTL_MS = 10 * 60 * 1000;
+
+let projectCache: ProjectCache | null = null;
+let projectLoadPromise: Promise<BlikkProject[]> | null = null;
+
 function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, milliseconds);
   });
 }
 
-export async function resolveProjectId(
-  projectName: string
-): Promise<string> {
-  const normalizedProjectName = projectName.trim().toLowerCase();
-
-  if (!normalizedProjectName) {
-    throw new Error("A project name is required.");
-  }
+async function fetchAllProjects(): Promise<BlikkProject[]> {
+  console.log("📥 Fetching all projects from Blikk");
 
   const firstPage = (await getProjects({
     page: 1,
@@ -54,6 +58,58 @@ export async function resolveProjectId(
 
     projects.push(...response.items);
   }
+
+  console.log(`✅ Fetched ${projects.length} projects from Blikk`);
+
+  return projects;
+}
+
+async function getCachedProjects(): Promise<BlikkProject[]> {
+  const now = Date.now();
+
+  if (projectCache && projectCache.expiresAt > now) {
+    console.log("⚡ Using cached project list");
+    return projectCache.projects;
+  }
+
+  if (projectLoadPromise) {
+    console.log("⏳ Waiting for ongoing project list fetch");
+    return projectLoadPromise;
+  }
+
+  console.log("♻️ Project cache is empty or expired");
+
+  const loadPromise = fetchAllProjects();
+  projectLoadPromise = loadPromise;
+
+  try {
+    const projects = await loadPromise;
+
+    projectCache = {
+      projects,
+      expiresAt: Date.now() + PROJECT_CACHE_TTL_MS,
+    };
+
+    console.log("✅ Project cache updated");
+
+    return projects;
+  } finally {
+    if (projectLoadPromise === loadPromise) {
+      projectLoadPromise = null;
+    }
+  }
+}
+
+export async function resolveProjectId(
+  projectName: string
+): Promise<string> {
+  const normalizedProjectName = projectName.trim().toLowerCase();
+
+  if (!normalizedProjectName) {
+    throw new Error("A project name is required.");
+  }
+
+  const projects = await getCachedProjects();
 
   const exactMatch = projects.find(
     (project) =>
