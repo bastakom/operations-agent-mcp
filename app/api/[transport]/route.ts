@@ -11,7 +11,6 @@ import {
 } from "../../../lib/blikk/endpoints";
 import {
   resolvePlanningUserId,
-  resolveProject,
   resolveProjectId,
 } from "../../../lib/blikk/resolvers";
 import {
@@ -41,7 +40,7 @@ const handler = createMcpHandler(
           content: [
             {
               type: "text",
-              text: "MCP server is alive :rocket: | build: project-details-v1",
+              text: "MCP server is alive :rocket: | build: project-details-v2",
             },
           ],
         };
@@ -352,7 +351,45 @@ const handler = createMcpHandler(
         );
 
         try {
-          const projectDetails = await resolveProject(project);
+          const normalizedProjectName = project
+            .trim()
+            .toLowerCase();
+
+          if (!normalizedProjectName) {
+            throw new Error("A project name is required.");
+          }
+
+          const result = await getProjectCatalogView({
+            query: project,
+            page: 1,
+            pageSize: 300,
+          });
+
+          const exactMatch = result.projects.find(
+            (item) =>
+              item.title.trim().toLowerCase() ===
+              normalizedProjectName
+          );
+
+          const projectDetails =
+            exactMatch ??
+            (result.totalMatches === 1
+              ? result.projects[0]
+              : null);
+
+          if (!projectDetails) {
+            if (result.totalMatches > 1) {
+              const matchingNames = result.projects
+                .map((item) => item.title)
+                .join(", ");
+
+              throw new Error(
+                `Multiple projects match '${project}': ${matchingNames}. Please specify the project name.`
+              );
+            }
+
+            throw new Error(`Project '${project}' not found.`);
+          }
 
           console.log(
             ":white_check_mark: Project details resolved"
