@@ -11,6 +11,7 @@ import {
 } from "../../../lib/blikk/endpoints";
 import {
   resolvePlanningUserId,
+  resolveProject,
   resolveProjectId,
 } from "../../../lib/blikk/resolvers";
 import {
@@ -40,7 +41,7 @@ const handler = createMcpHandler(
           content: [
             {
               type: "text",
-              text: "MCP server is alive :rocket:",
+              text: "MCP server is alive :rocket: | build: project-details-v1",
             },
           ],
         };
@@ -317,6 +318,57 @@ const handler = createMcpHandler(
         } catch (error) {
           console.error(
             ":x: list_project_statuses failed:",
+            error
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Blikk error: ${error.message}`
+                    : "Unknown Blikk error",
+              },
+            ],
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "get_project_details",
+      {
+        title: "Get Project Details",
+        description:
+          "Returns details for one Blikk project, including its tags, category, project collection and cost center. Accepts a full project name or a unique partial project name.",
+        inputSchema: {
+          project: z.string(),
+        },
+      },
+      async ({ project }) => {
+        console.log(
+          ":arrow_right: get_project_details tool invoked"
+        );
+
+        try {
+          const projectDetails = await resolveProject(project);
+
+          console.log(
+            ":white_check_mark: Project details resolved"
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(projectDetails, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          console.error(
+            ":x: get_project_details failed:",
             error
           );
 
