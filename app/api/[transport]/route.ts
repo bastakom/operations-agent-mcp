@@ -1,13 +1,13 @@
 import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
 import {
-  getUsers,
-  getProjects,
-  getTimeReports,
-  getUserDayStatistics,
+  getAllUsers,
+  getAllProjects,
+  getAllTimeReports,
+  getAllUserDayStatistics,
   getProjectTimeCalculation,
-  getUsersWithResourcePlanning,
-  getPlanningSummariesForUser,
+  getAllUsersWithResourcePlanning,
+  getAllPlanningSummariesForUser,
 } from "../../../lib/blikk/endpoints";
 import {
   resolvePlanningUserId,
@@ -41,7 +41,7 @@ const handler = createMcpHandler(
           content: [
             {
               type: "text",
-              text: "MCP server is alive :rocket: | build: budget-tag-audit-v2",
+              text: "MCP server is alive :rocket: | build: auto-pagination-v3",
             },
           ],
         };
@@ -59,11 +59,11 @@ const handler = createMcpHandler(
         console.log(":arrow_right: get_users tool invoked");
 
         try {
-          console.log(":arrow_right: Calling getUsers()");
+          console.log(":arrow_right: Calling getAllUsers()");
 
-          const users = await getUsers();
+          const users = await getAllUsers();
 
-          console.log(":white_check_mark: getUsers() completed");
+          console.log(":white_check_mark: getAllUsers() completed");
 
           return {
             content: [
@@ -109,16 +109,16 @@ const handler = createMcpHandler(
 
         try {
           console.log(
-            ":arrow_right: Calling getUsersWithResourcePlanning()"
+            ":arrow_right: Calling getAllUsersWithResourcePlanning()"
           );
 
-          const users = await getUsersWithResourcePlanning({
+          const users = await getAllUsersWithResourcePlanning({
             fromDate,
             toDate,
           });
 
           console.log(
-            ":white_check_mark: getUsersWithResourcePlanning() completed"
+            ":white_check_mark: getAllUsersWithResourcePlanning() completed"
           );
 
           return {
@@ -183,17 +183,17 @@ const handler = createMcpHandler(
           );
 
           console.log(
-            ":arrow_right: Calling getPlanningSummariesForUser()"
+            ":arrow_right: Calling getAllPlanningSummariesForUser()"
           );
 
-          const summaries = await getPlanningSummariesForUser({
+          const summaries = await getAllPlanningSummariesForUser({
             userId,
             fromDate,
             toDate,
           });
 
           console.log(
-            ":white_check_mark: getPlanningSummariesForUser() completed"
+            ":white_check_mark: getAllPlanningSummariesForUser() completed"
           );
 
           return {
@@ -240,18 +240,18 @@ const handler = createMcpHandler(
       {
         title: "Get Projects",
         description:
-          "Fetches the first page of up to 100 projects from Blikk.",
+          "Fetches every project from Blikk by automatically retrieving and combining all API pages.",
         inputSchema: {},
       },
       async () => {
         console.log(":arrow_right: get_projects tool invoked");
 
         try {
-          console.log(":arrow_right: Calling getProjects()");
+          console.log(":arrow_right: Calling getAllProjects()");
 
-          const projects = await getProjects();
+          const projects = await getAllProjects();
 
-          console.log(":white_check_mark: getProjects() completed");
+          console.log(":white_check_mark: getAllProjects() completed");
 
           return {
             content: [
@@ -340,7 +340,8 @@ const handler = createMcpHandler(
       "get_time_reports",
       {
         title: "Get Time Reports",
-        description: "Fetches time reports from Blikk.",
+        description:
+          "Fetches all matching time reports from Blikk by automatically retrieving and combining every API page.",
         inputSchema: {
           fromDate: z.string().optional(),
           toDate: z.string().optional(),
@@ -352,16 +353,16 @@ const handler = createMcpHandler(
         console.log(":arrow_right: get_time_reports tool invoked");
 
         try {
-          console.log(":arrow_right: Calling getTimeReports()");
+          console.log(":arrow_right: Calling getAllTimeReports()");
 
-          const reports = await getTimeReports({
+          const reports = await getAllTimeReports({
             fromDate,
             toDate,
             userId,
             projectId,
           });
 
-          console.log(":white_check_mark: getTimeReports() completed");
+          console.log(":white_check_mark: getAllTimeReports() completed");
 
           return {
             content: [
@@ -393,7 +394,8 @@ const handler = createMcpHandler(
       "get_user_day_statistics",
       {
         title: "Get User Day Statistics",
-        description: "Fetches daily statistics for a user from Blikk.",
+        description:
+          "Fetches all matching daily user statistics from Blikk by automatically retrieving and combining every API page.",
         inputSchema: {
           fromDate: z.string(),
           toDate: z.string(),
@@ -407,17 +409,17 @@ const handler = createMcpHandler(
 
         try {
           console.log(
-            ":arrow_right: Calling getUserDayStatistics()"
+            ":arrow_right: Calling getAllUserDayStatistics()"
           );
 
-          const statistics = await getUserDayStatistics({
+          const statistics = await getAllUserDayStatistics({
             fromDate,
             toDate,
             userId,
           });
 
           console.log(
-            ":white_check_mark: getUserDayStatistics() completed"
+            ":white_check_mark: getAllUserDayStatistics() completed"
           );
 
           return {
@@ -516,12 +518,14 @@ const handler = createMcpHandler(
       {
         title: "Get Project Budget Status",
         description:
-          "Calculates the complete time budget status for a project in Blikk. Returns total budget hours, reported hours, remaining hours, used percentage, remaining percentage and whether the project is over budget. Use this tool for questions about remaining project time, budget usage or budget percentages. Accepts a full or partial project name.",
+          "Calculates budget status according to the project's budget tag: Timbank, Projekt, Retainer or Löpande. For Retainer projects, fromDate and toDate select the reporting period and every calendar month touched counts as one full monthly budget. Without dates, the current calendar month is used. Dates must use YYYY-MM-DD.",
         inputSchema: {
           project: z.string(),
+          fromDate: z.string().optional(),
+          toDate: z.string().optional(),
         },
       },
-      async ({ project }) => {
+      async ({ project, fromDate, toDate }) => {
         console.log(
           ":arrow_right: get_project_budget_status tool invoked"
         );
@@ -531,8 +535,11 @@ const handler = createMcpHandler(
             ":arrow_right: Calling getProjectBudgetStatus()"
           );
 
-          const budgetStatus =
-            await getProjectBudgetStatus(project);
+          const budgetStatus = await getProjectBudgetStatus(
+            project,
+            fromDate,
+            toDate
+          );
 
           console.log(
             ":white_check_mark: getProjectBudgetStatus() completed"
@@ -572,13 +579,15 @@ const handler = createMcpHandler(
       {
         title: "Get Project Budget Status Excluding Users",
         description:
-          "Calculates a project's adjusted time budget after excluding the reported hours of selected users. Returns the original reported hours, excluded hours per user, adjusted reported hours, remaining budget and percentages. Accepts a full or partial project name and full or unique partial user names.",
+          "Calculates budget status after excluding selected users, using the project's Timbank, Projekt, Retainer or Löpande tag. For Retainer projects, fromDate and toDate select the period and every calendar month touched counts as one full monthly budget. Without dates, the current calendar month is used. Dates must use YYYY-MM-DD.",
         inputSchema: {
           project: z.string(),
           excludeUsers: z.array(z.string()).min(1),
+          fromDate: z.string().optional(),
+          toDate: z.string().optional(),
         },
       },
-      async ({ project, excludeUsers }) => {
+      async ({ project, excludeUsers, fromDate, toDate }) => {
         console.log(
           ":arrow_right: get_project_budget_status_excluding_users tool invoked"
         );
@@ -591,7 +600,9 @@ const handler = createMcpHandler(
           const budgetStatus =
             await getProjectBudgetStatusExcludingUsers(
               project,
-              excludeUsers
+              excludeUsers,
+              fromDate,
+              toDate
             );
 
           console.log(
