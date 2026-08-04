@@ -40,7 +40,7 @@ const handler = createMcpHandler(
           content: [
             {
               type: "text",
-              text: "MCP server is alive :rocket: | build: budget-types-v1",
+              text: "MCP server is alive :rocket:",
             },
           ],
         };
@@ -336,95 +336,6 @@ const handler = createMcpHandler(
     );
 
     server.registerTool(
-      "get_project_details",
-      {
-        title: "Get Project Details",
-        description:
-          "Returns details for one Blikk project, including its tags, category, project collection and cost center. Accepts a full project name or a unique partial project name.",
-        inputSchema: {
-          project: z.string(),
-        },
-      },
-      async ({ project }) => {
-        console.log(
-          ":arrow_right: get_project_details tool invoked"
-        );
-
-        try {
-          const normalizedProjectName = project
-            .trim()
-            .toLowerCase();
-
-          if (!normalizedProjectName) {
-            throw new Error("A project name is required.");
-          }
-
-          const result = await getProjectCatalogView({
-            query: project,
-            page: 1,
-            pageSize: 300,
-          });
-
-          const exactMatch = result.projects.find(
-            (item) =>
-              item.title.trim().toLowerCase() ===
-              normalizedProjectName
-          );
-
-          const projectDetails =
-            exactMatch ??
-            (result.totalMatches === 1
-              ? result.projects[0]
-              : null);
-
-          if (!projectDetails) {
-            if (result.totalMatches > 1) {
-              const matchingNames = result.projects
-                .map((item) => item.title)
-                .join(", ");
-
-              throw new Error(
-                `Multiple projects match '${project}': ${matchingNames}. Please specify the project name.`
-              );
-            }
-
-            throw new Error(`Project '${project}' not found.`);
-          }
-
-          console.log(
-            ":white_check_mark: Project details resolved"
-          );
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(projectDetails, null, 2),
-              },
-            ],
-          };
-        } catch (error) {
-          console.error(
-            ":x: get_project_details failed:",
-            error
-          );
-
-          return {
-            content: [
-              {
-                type: "text",
-                text:
-                  error instanceof Error
-                    ? `Blikk error: ${error.message}`
-                    : "Unknown Blikk error",
-              },
-            ],
-          };
-        }
-      }
-    );
-
-    server.registerTool(
       "get_time_reports",
       {
         title: "Get Time Reports",
@@ -604,14 +515,12 @@ const handler = createMcpHandler(
       {
         title: "Get Project Budget Status",
         description:
-          "Calculates budget status according to the project's budget tag: Timbank, Projekt, Retainer or Löpande. For Retainer projects, fromDate and toDate select the reporting period and every calendar month touched counts as one full monthly budget. Without dates, the current calendar month is used. Dates must use YYYY-MM-DD.",
+          "Calculates the complete time budget status for a project in Blikk. Returns total budget hours, reported hours, remaining hours, used percentage, remaining percentage and whether the project is over budget. Use this tool for questions about remaining project time, budget usage or budget percentages. Accepts a full or partial project name.",
         inputSchema: {
           project: z.string(),
-          fromDate: z.string().optional(),
-          toDate: z.string().optional(),
         },
       },
-      async ({ project, fromDate, toDate }) => {
+      async ({ project }) => {
         console.log(
           ":arrow_right: get_project_budget_status tool invoked"
         );
@@ -622,11 +531,7 @@ const handler = createMcpHandler(
           );
 
           const budgetStatus =
-            await getProjectBudgetStatus(
-              project,
-              fromDate,
-              toDate
-            );
+            await getProjectBudgetStatus(project);
 
           console.log(
             ":white_check_mark: getProjectBudgetStatus() completed"
@@ -666,15 +571,13 @@ const handler = createMcpHandler(
       {
         title: "Get Project Budget Status Excluding Users",
         description:
-          "Calculates budget status after excluding selected users, using the project's Timbank, Projekt, Retainer or Löpande tag. For Retainer projects, fromDate and toDate select the period and every calendar month touched counts as one full monthly budget. Without dates, the current calendar month is used. Dates must use YYYY-MM-DD.",
+          "Calculates a project's adjusted time budget after excluding the reported hours of selected users. Returns the original reported hours, excluded hours per user, adjusted reported hours, remaining budget and percentages. Accepts a full or partial project name and full or unique partial user names.",
         inputSchema: {
           project: z.string(),
           excludeUsers: z.array(z.string()).min(1),
-          fromDate: z.string().optional(),
-          toDate: z.string().optional(),
         },
       },
-      async ({ project, excludeUsers, fromDate, toDate }) => {
+      async ({ project, excludeUsers }) => {
         console.log(
           ":arrow_right: get_project_budget_status_excluding_users tool invoked"
         );
@@ -687,9 +590,7 @@ const handler = createMcpHandler(
           const budgetStatus =
             await getProjectBudgetStatusExcludingUsers(
               project,
-              excludeUsers,
-              fromDate,
-              toDate
+              excludeUsers
             );
 
           console.log(
