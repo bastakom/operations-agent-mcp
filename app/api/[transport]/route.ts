@@ -41,7 +41,7 @@ const handler = createMcpHandler(
           content: [
             {
               type: "text",
-              text: "MCP server is alive :rocket: | build: auto-pagination-v3",
+              text: "MCP server is alive :rocket: | build: all-functions-pagination-v4",
             },
           ],
         };
@@ -284,7 +284,7 @@ const handler = createMcpHandler(
       {
         title: "List Project Statuses",
         description:
-          "Returns a status summary and the first page of projects from the complete Blikk project catalog. Set isCompleted to false to return projects that are not completed.",
+          "Returns a status summary and every matching project from the complete Blikk project catalog. All internal result pages are automatically combined. Set isCompleted to false to return every project that is not completed.",
         inputSchema: {
           isCompleted: z.boolean().optional(),
         },
@@ -299,9 +299,34 @@ const handler = createMcpHandler(
             ":arrow_right: Calling getProjectCatalogView()"
           );
 
-          const result = await getProjectCatalogView({
+          const firstResult = await getProjectCatalogView({
             isCompleted,
+            page: 1,
+            pageSize: 300,
           });
+
+          const projects = [...firstResult.projects];
+          const sourceTotalPages = firstResult.totalPages;
+
+          for (let page = 2; page <= sourceTotalPages; page += 1) {
+            const nextResult = await getProjectCatalogView({
+              isCompleted,
+              page,
+              pageSize: 300,
+            });
+
+            projects.push(...nextResult.projects);
+          }
+
+          const result = {
+            ...firstResult,
+            page: 1,
+            totalPages: sourceTotalPages,
+            pagesFetched: sourceTotalPages,
+            isComplete: true,
+            returnedProjects: projects.length,
+            projects,
+          };
 
           console.log(
             ":white_check_mark: getProjectCatalogView() completed"
