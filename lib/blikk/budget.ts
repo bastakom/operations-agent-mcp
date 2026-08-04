@@ -5,7 +5,7 @@ import {
 import {
   getProjectCatalog,
   ProjectCatalogItem,
-  resolveProject,
+  resolveProjectId,
   resolveUserId,
 } from "./resolvers";
 
@@ -36,38 +36,15 @@ type TimeReportResponse = {
 };
 
 export type ProjectBudgetStatus = {
-  budgetLogicVersion: "budget-types-v1";
   requestedProject: string;
   projectId: string;
-  budgetType: BudgetType;
-  budgetTag: string | null;
-  budgetStatusReliable: boolean;
-  isUnlimited: boolean;
-  configuredBudgetHours: number;
-  budgetHours: number | null;
-  effectiveBudgetHours: number | null;
-  period: BudgetPeriod;
+  budgetHours: number;
   reportedHours: number;
-  remainingHours: number | null;
+  remainingHours: number;
   usedPercent: number | null;
   remainingPercent: number | null;
-  isOverBudget: boolean | null;
-  overBudgetHours: number | null;
-  warnings: string[];
-};
-
-export type BudgetType =
-  | "timbank"
-  | "project"
-  | "retainer"
-  | "ongoing"
-  | "unknown";
-
-export type BudgetPeriod = {
-  fromDate: string | null;
-  toDate: string | null;
-  monthCount: number | null;
-  source: "project_lifetime" | "requested" | "current_month";
+  isOverBudget: boolean;
+  overBudgetHours: number;
 };
 
 export type ExcludedUserBudgetItem = {
@@ -79,31 +56,21 @@ export type ExcludedUserBudgetItem = {
 };
 
 export type ProjectBudgetStatusExcludingUsers = {
-  budgetLogicVersion: "budget-types-v1";
   requestedProject: string;
   projectId: string;
-  budgetType: BudgetType;
-  budgetTag: string | null;
-  budgetStatusReliable: boolean;
-  isUnlimited: boolean;
-  configuredBudgetHours: number;
-  budgetHours: number | null;
-  effectiveBudgetHours: number | null;
-  period: BudgetPeriod;
+  budgetHours: number;
   totalReportedHours: number;
   excludedReportedHours: number;
   adjustedReportedHours: number;
-  remainingHours: number | null;
+  remainingHours: number;
   usedPercent: number | null;
   remainingPercent: number | null;
-  isOverBudget: boolean | null;
-  overBudgetHours: number | null;
+  isOverBudget: boolean;
+  overBudgetHours: number;
   excludedUsers: ExcludedUserBudgetItem[];
-  warnings: string[];
 };
 
 export type ActiveProjectBudgetItem = {
-  budgetLogicVersion: "budget-types-v1" | null;
   projectId: string;
   orderNumber: string | null;
   project: string;
@@ -111,21 +78,13 @@ export type ActiveProjectBudgetItem = {
   status: string | null;
   projectManagerId: string | null;
   projectManagerName: string | null;
-  budgetType: BudgetType | null;
-  budgetTag: string | null;
-  budgetStatusReliable: boolean | null;
-  isUnlimited: boolean | null;
-  configuredBudgetHours: number | null;
   budgetHours: number | null;
-  effectiveBudgetHours: number | null;
-  period: BudgetPeriod | null;
   reportedHours: number | null;
   remainingHours: number | null;
   usedPercent: number | null;
   remainingPercent: number | null;
   isOverBudget: boolean | null;
   overBudgetHours: number | null;
-  warnings: string[];
   error: string | null;
 };
 
@@ -137,9 +96,6 @@ export type ActiveProjectBudgetReport = {
   successfulProjects: number;
   failedProjects: number;
   overBudgetProjects: number;
-  unlimitedProjects: number;
-  unclassifiedProjects: number;
-  projectsWithWarnings: number;
   totalBudgetHours: number;
   totalReportedHours: number;
   totalRemainingHours: number;
@@ -156,32 +112,6 @@ const RATE_LIMIT_RETRY_MS = 1200;
 const MAX_RATE_LIMIT_RETRIES = 3;
 const ACTIVE_BUDGET_CACHE_TTL_MS = 30 * 60 * 1000;
 
-const BUDGET_TAGS: Record<string, BudgetType> = {
-  timbank: "timbank",
-  projekt: "project",
-  retainer: "retainer",
-  "löpande": "ongoing",
-};
-
-type BudgetContext = {
-  budgetType: BudgetType;
-  budgetTag: string | null;
-  budgetStatusReliable: boolean;
-  isUnlimited: boolean;
-  configuredBudgetHours: number;
-  effectiveBudgetHours: number | null;
-  period: BudgetPeriod;
-  warnings: string[];
-};
-
-type BudgetMetrics = {
-  remainingHours: number | null;
-  usedPercent: number | null;
-  remainingPercent: number | null;
-  isOverBudget: boolean | null;
-  overBudgetHours: number | null;
-};
-
 let activeBudgetCache: ActiveBudgetCache | null = null;
 let activeBudgetLoadPromise:
   | Promise<ActiveProjectBudgetReport>
@@ -195,244 +125,6 @@ function wait(milliseconds: number): Promise<void> {
 
 function round(value: number): number {
   return Math.round(value * 100) / 100;
-}
-
-function normalizeTagName(value: string): string {
-  return value.trim().toLocaleLowerCase("sv-SE");
-}
-
-function parseDate(value: string, fieldName: string): Date {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    throw new Error(`${fieldName} must use the YYYY-MM-DD format.`);
-  }
-
-  const [year, month, day] = value.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day));
-
-  if (
-    date.getUTCFullYear() !== year ||
-    date.getUTCMonth() !== month - 1 ||
-    date.getUTCDate() !== day
-  ) {
-    throw new Error(`${fieldName} is not a valid calendar date.`);
-  }
-
-  return date;
-}
-
-function formatDate(year: number, month: number, day: number): string {
-  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-}
-
-function getCurrentMonthRange(): {
-  fromDate: string;
-  toDate: string;
-} {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Stockholm",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-
-  const year = Number(
-    parts.find((part) => part.type === "year")?.value
-  );
-  const month = Number(
-    parts.find((part) => part.type === "month")?.value
-  );
-  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-
-  return {
-    fromDate: formatDate(year, month, 1),
-    toDate: formatDate(year, month, lastDay),
-  };
-}
-
-function resolveRetainerPeriod(
-  fromDate?: string,
-  toDate?: string
-): BudgetPeriod {
-  if ((fromDate && !toDate) || (!fromDate && toDate)) {
-    throw new Error(
-      "Both fromDate and toDate are required when specifying a retainer period."
-    );
-  }
-
-  if (!fromDate && !toDate) {
-    const currentMonth = getCurrentMonthRange();
-
-    return {
-      ...currentMonth,
-      monthCount: 1,
-      source: "current_month",
-    };
-  }
-
-  const parsedFromDate = parseDate(fromDate!, "fromDate");
-  const parsedToDate = parseDate(toDate!, "toDate");
-
-  if (parsedFromDate.getTime() > parsedToDate.getTime()) {
-    throw new Error("fromDate must be before or equal to toDate.");
-  }
-
-  const monthCount =
-    (parsedToDate.getUTCFullYear() - parsedFromDate.getUTCFullYear()) * 12 +
-    parsedToDate.getUTCMonth() -
-    parsedFromDate.getUTCMonth() +
-    1;
-
-  return {
-    fromDate: fromDate!,
-    toDate: toDate!,
-    monthCount,
-    source: "requested",
-  };
-}
-
-function classifyBudgetType(project: ProjectCatalogItem): {
-  budgetType: BudgetType;
-  budgetTag: string | null;
-  warnings: string[];
-} {
-  const matches = project.tags
-    .map((tag) => ({
-      tag,
-      budgetType: BUDGET_TAGS[normalizeTagName(tag.name)],
-    }))
-    .filter(
-      (match): match is {
-        tag: ProjectCatalogItem["tags"][number];
-        budgetType: BudgetType;
-      } => Boolean(match.budgetType)
-    );
-
-  if (matches.length > 1) {
-    throw new Error(
-      `Project '${project.title}' has multiple budget tags: ${matches
-        .map((match) => match.tag.name)
-        .join(", ")}. Keep exactly one of Timbank, Projekt, Retainer or Löpande.`
-    );
-  }
-
-  if (matches.length === 0) {
-    return {
-      budgetType: "unknown",
-      budgetTag: null,
-      warnings: [
-        "Projektet saknar budgetetikett. Lägg till Timbank, Projekt, Retainer eller Löpande.",
-      ],
-    };
-  }
-
-  return {
-    budgetType: matches[0].budgetType,
-    budgetTag: matches[0].tag.name,
-    warnings: [],
-  };
-}
-
-function createBudgetContext(
-  project: ProjectCatalogItem,
-  configuredBudgetHours: number,
-  fromDate?: string,
-  toDate?: string
-): BudgetContext {
-  const classification = classifyBudgetType(project);
-
-  if (classification.budgetType === "retainer") {
-    const period = resolveRetainerPeriod(fromDate, toDate);
-    const effectiveBudgetHours =
-      configuredBudgetHours * (period.monthCount ?? 1);
-
-    return {
-      ...classification,
-      budgetStatusReliable: true,
-      isUnlimited: false,
-      configuredBudgetHours,
-      effectiveBudgetHours,
-      period,
-    };
-  }
-
-  const period: BudgetPeriod = {
-    fromDate: null,
-    toDate: null,
-    monthCount: null,
-    source: "project_lifetime",
-  };
-
-  if (classification.budgetType === "ongoing") {
-    return {
-      ...classification,
-      budgetStatusReliable: true,
-      isUnlimited: true,
-      configuredBudgetHours,
-      effectiveBudgetHours: null,
-      period,
-    };
-  }
-
-  if (classification.budgetType === "unknown") {
-    return {
-      ...classification,
-      budgetStatusReliable: false,
-      isUnlimited: false,
-      configuredBudgetHours,
-      effectiveBudgetHours: null,
-      period,
-    };
-  }
-
-  return {
-    ...classification,
-    budgetStatusReliable: true,
-    isUnlimited: false,
-    configuredBudgetHours,
-    effectiveBudgetHours: configuredBudgetHours,
-    period,
-  };
-}
-
-function calculateBudgetMetrics(
-  context: BudgetContext,
-  reportedHours: number
-): BudgetMetrics {
-  if (
-    !context.budgetStatusReliable ||
-    context.isUnlimited ||
-    context.effectiveBudgetHours === null
-  ) {
-    return {
-      remainingHours: null,
-      usedPercent: null,
-      remainingPercent: null,
-      isOverBudget: null,
-      overBudgetHours: null,
-    };
-  }
-
-  const remainingHours = context.effectiveBudgetHours - reportedHours;
-  const isOverBudget = remainingHours < 0;
-  const usedPercent =
-    context.effectiveBudgetHours > 0
-      ? (reportedHours / context.effectiveBudgetHours) * 100
-      : null;
-  const remainingPercent =
-    context.effectiveBudgetHours > 0
-      ? (remainingHours / context.effectiveBudgetHours) * 100
-      : null;
-
-  return {
-    remainingHours: round(remainingHours),
-    usedPercent: usedPercent === null ? null : round(usedPercent),
-    remainingPercent:
-      remainingPercent === null ? null : round(remainingPercent),
-    isOverBudget,
-    overBudgetHours: isOverBudget
-      ? round(Math.abs(remainingHours))
-      : 0,
-  };
 }
 
 function isRateLimitError(error: unknown): boolean {
@@ -590,25 +282,17 @@ function resolveUserFromTimeReports(
 
 async function getAllProjectTimeReports(
   projectId: string,
-  userId?: string,
-  fromDate?: string,
-  toDate?: string
+  userId?: string
 ): Promise<TimeReport[]> {
-  const operationDescription = [
-    `project ${projectId}`,
-    userId ? `user ${userId}` : null,
-    fromDate && toDate ? `${fromDate} to ${toDate}` : null,
-  ]
-    .filter(Boolean)
-    .join(", ");
+  const operationDescription = userId
+    ? `project ${projectId} and user ${userId}`
+    : `project ${projectId}`;
 
   const firstPage = await withRateLimitRetry(
     async () =>
       (await getTimeReports({
         projectId,
         userId,
-        fromDate,
-        toDate,
         page: 1,
         pageSize: 100,
       })) as TimeReportResponse,
@@ -630,8 +314,6 @@ async function getAllProjectTimeReports(
         (await getTimeReports({
           projectId,
           userId,
-          fromDate,
-          toDate,
           page,
           pageSize: 100,
         })) as TimeReportResponse,
@@ -673,79 +355,63 @@ async function getProjectTimeBudget(
   return calculation.total;
 }
 
-async function getProjectBudgetStatusForProject(
-  project: ProjectCatalogItem,
-  requestedProject: string,
-  fromDate?: string,
-  toDate?: string
+async function getProjectBudgetStatusById(
+  projectId: string,
+  projectName: string
 ): Promise<ProjectBudgetStatus> {
-  const configuredBudgetHours = await getProjectTimeBudget(
-    project.id,
-    project.title
-  );
-
-  const context = createBudgetContext(
-    project,
-    configuredBudgetHours,
-    fromDate,
-    toDate
+  const budgetHours = await getProjectTimeBudget(
+    projectId,
+    projectName
   );
 
   await wait(REQUEST_DELAY_MS);
 
-  const reports = await getAllProjectTimeReports(
-    project.id,
-    undefined,
-    context.period.fromDate ?? undefined,
-    context.period.toDate ?? undefined
-  );
+  const reports = await getAllProjectTimeReports(projectId);
   const reportedHours = sumReportedHours(reports);
-  const metrics = calculateBudgetMetrics(context, reportedHours);
+
+  const remainingHours = budgetHours - reportedHours;
+  const isOverBudget = remainingHours < 0;
+
+  const usedPercent =
+    budgetHours > 0
+      ? (reportedHours / budgetHours) * 100
+      : null;
+
+  const remainingPercent =
+    budgetHours > 0
+      ? (remainingHours / budgetHours) * 100
+      : null;
 
   return {
-    budgetLogicVersion: "budget-types-v1",
-    requestedProject,
-    projectId: project.id,
-    budgetType: context.budgetType,
-    budgetTag: context.budgetTag,
-    budgetStatusReliable: context.budgetStatusReliable,
-    isUnlimited: context.isUnlimited,
-    configuredBudgetHours: round(context.configuredBudgetHours),
-    budgetHours:
-      context.effectiveBudgetHours === null
-        ? null
-        : round(context.effectiveBudgetHours),
-    effectiveBudgetHours:
-      context.effectiveBudgetHours === null
-        ? null
-        : round(context.effectiveBudgetHours),
-    period: context.period,
+    requestedProject: projectName,
+    projectId,
+    budgetHours: round(budgetHours),
     reportedHours: round(reportedHours),
-    ...metrics,
-    warnings: context.warnings,
+    remainingHours: round(remainingHours),
+    usedPercent:
+      usedPercent === null ? null : round(usedPercent),
+    remainingPercent:
+      remainingPercent === null
+        ? null
+        : round(remainingPercent),
+    isOverBudget,
+    overBudgetHours: isOverBudget
+      ? round(Math.abs(remainingHours))
+      : 0,
   };
 }
 
 export async function getProjectBudgetStatus(
-  projectName: string,
-  fromDate?: string,
-  toDate?: string
+  projectName: string
 ): Promise<ProjectBudgetStatus> {
-  const project = await resolveProject(projectName);
+  const projectId = await resolveProjectId(projectName);
 
-  return getProjectBudgetStatusForProject(
-    project,
-    projectName,
-    fromDate,
-    toDate
-  );
+  return getProjectBudgetStatusById(projectId, projectName);
 }
 
 export async function getProjectBudgetStatusExcludingUsers(
   projectName: string,
-  excludedUserNames: string[],
-  fromDate?: string,
-  toDate?: string
+  excludedUserNames: string[]
 ): Promise<ProjectBudgetStatusExcludingUsers> {
   const cleanedUserNames = excludedUserNames
     .map((userName) => userName.trim())
@@ -763,60 +429,27 @@ export async function getProjectBudgetStatusExcludingUsers(
     )}`
   );
 
-  const project = await resolveProject(projectName);
+  const projectId = await resolveProjectId(projectName);
 
-  const configuredBudgetHours = await getProjectTimeBudget(
-    project.id,
-    project.title
-  );
-
-  const context = createBudgetContext(
-    project,
-    configuredBudgetHours,
-    fromDate,
-    toDate
+  const budgetHours = await getProjectTimeBudget(
+    projectId,
+    projectName
   );
 
   await wait(REQUEST_DELAY_MS);
 
-  const allReports = await getAllProjectTimeReports(
-    project.id,
-    undefined,
-    context.period.fromDate ?? undefined,
-    context.period.toDate ?? undefined
-  );
+  const allReports = await getAllProjectTimeReports(projectId);
   const totalReportedHours = sumReportedHours(allReports);
   const reportedUsers = getReportedProjectUsers(allReports);
-  let allTimeReportedUsers: ReportedProjectUser[] | null = null;
 
   const excludedUsers: ExcludedUserBudgetItem[] = [];
   const resolvedUserIds = new Set<string>();
 
   for (const requestedName of cleanedUserNames) {
-    let reportedUser = resolveUserFromTimeReports(
+    const reportedUser = resolveUserFromTimeReports(
       requestedName,
       reportedUsers
     );
-
-    if (!reportedUser && context.budgetType === "retainer") {
-      if (!allTimeReportedUsers) {
-        await wait(REQUEST_DELAY_MS);
-        const allTimeReports = await getAllProjectTimeReports(project.id);
-        allTimeReportedUsers = getReportedProjectUsers(allTimeReports);
-      }
-
-      const historicalUser = resolveUserFromTimeReports(
-        requestedName,
-        allTimeReportedUsers
-      );
-
-      if (historicalUser) {
-        reportedUser = {
-          ...historicalUser,
-          reportedHours: 0,
-        };
-      }
-    }
 
     let userId: string;
     let userName: string;
@@ -867,35 +500,40 @@ export async function getProjectBudgetStatusExcludingUsers(
   const adjustedReportedHours =
     totalReportedHours - excludedReportedHours;
 
-  const metrics = calculateBudgetMetrics(
-    context,
-    adjustedReportedHours
-  );
+  const remainingHours =
+    budgetHours - adjustedReportedHours;
+
+  const isOverBudget = remainingHours < 0;
+
+  const usedPercent =
+    budgetHours > 0
+      ? (adjustedReportedHours / budgetHours) * 100
+      : null;
+
+  const remainingPercent =
+    budgetHours > 0
+      ? (remainingHours / budgetHours) * 100
+      : null;
 
   return {
-    budgetLogicVersion: "budget-types-v1",
     requestedProject: projectName,
-    projectId: project.id,
-    budgetType: context.budgetType,
-    budgetTag: context.budgetTag,
-    budgetStatusReliable: context.budgetStatusReliable,
-    isUnlimited: context.isUnlimited,
-    configuredBudgetHours: round(context.configuredBudgetHours),
-    budgetHours:
-      context.effectiveBudgetHours === null
-        ? null
-        : round(context.effectiveBudgetHours),
-    effectiveBudgetHours:
-      context.effectiveBudgetHours === null
-        ? null
-        : round(context.effectiveBudgetHours),
-    period: context.period,
+    projectId,
+    budgetHours: round(budgetHours),
     totalReportedHours: round(totalReportedHours),
     excludedReportedHours: round(excludedReportedHours),
     adjustedReportedHours: round(adjustedReportedHours),
-    ...metrics,
+    remainingHours: round(remainingHours),
+    usedPercent:
+      usedPercent === null ? null : round(usedPercent),
+    remainingPercent:
+      remainingPercent === null
+        ? null
+        : round(remainingPercent),
+    isOverBudget,
+    overBudgetHours: isOverBudget
+      ? round(Math.abs(remainingHours))
+      : 0,
     excludedUsers,
-    warnings: context.warnings,
   };
 }
 
@@ -904,7 +542,6 @@ function createSuccessfulItem(
   budgetStatus: ProjectBudgetStatus
 ): ActiveProjectBudgetItem {
   return {
-    budgetLogicVersion: budgetStatus.budgetLogicVersion,
     projectId: project.id,
     orderNumber: project.orderNumber,
     project: project.title,
@@ -912,21 +549,13 @@ function createSuccessfulItem(
     status: project.status,
     projectManagerId: project.projectManagerId,
     projectManagerName: project.projectManagerName,
-    budgetType: budgetStatus.budgetType,
-    budgetTag: budgetStatus.budgetTag,
-    budgetStatusReliable: budgetStatus.budgetStatusReliable,
-    isUnlimited: budgetStatus.isUnlimited,
-    configuredBudgetHours: budgetStatus.configuredBudgetHours,
     budgetHours: budgetStatus.budgetHours,
-    effectiveBudgetHours: budgetStatus.effectiveBudgetHours,
-    period: budgetStatus.period,
     reportedHours: budgetStatus.reportedHours,
     remainingHours: budgetStatus.remainingHours,
     usedPercent: budgetStatus.usedPercent,
     remainingPercent: budgetStatus.remainingPercent,
     isOverBudget: budgetStatus.isOverBudget,
     overBudgetHours: budgetStatus.overBudgetHours,
-    warnings: budgetStatus.warnings,
     error: null,
   };
 }
@@ -936,7 +565,6 @@ function createFailedItem(
   error: unknown
 ): ActiveProjectBudgetItem {
   return {
-    budgetLogicVersion: null,
     projectId: project.id,
     orderNumber: project.orderNumber,
     project: project.title,
@@ -944,21 +572,13 @@ function createFailedItem(
     status: project.status,
     projectManagerId: project.projectManagerId,
     projectManagerName: project.projectManagerName,
-    budgetType: null,
-    budgetTag: null,
-    budgetStatusReliable: null,
-    isUnlimited: null,
-    configuredBudgetHours: null,
     budgetHours: null,
-    effectiveBudgetHours: null,
-    period: null,
     reportedHours: null,
     remainingHours: null,
     usedPercent: null,
     remainingPercent: null,
     isOverBudget: null,
     overBudgetHours: null,
-    warnings: [],
     error:
       error instanceof Error
         ? error.message
@@ -991,8 +611,8 @@ async function buildActiveProjectBudgetReport(): Promise<
     );
 
     try {
-      const budgetStatus = await getProjectBudgetStatusForProject(
-        project,
+      const budgetStatus = await getProjectBudgetStatusById(
+        project.id,
         project.title
       );
 
@@ -1025,15 +645,6 @@ async function buildActiveProjectBudgetReport(): Promise<
       projects.length - successfulProjects.length,
     overBudgetProjects: successfulProjects.filter(
       (project) => project.isOverBudget === true
-    ).length,
-    unlimitedProjects: successfulProjects.filter(
-      (project) => project.isUnlimited === true
-    ).length,
-    unclassifiedProjects: successfulProjects.filter(
-      (project) => project.budgetType === "unknown"
-    ).length,
-    projectsWithWarnings: successfulProjects.filter(
-      (project) => project.warnings.length > 0
     ).length,
     totalBudgetHours: round(
       successfulProjects.reduce(
