@@ -14,6 +14,7 @@ import {
   resolveProjectId,
 } from "../../../lib/blikk/resolvers";
 import {
+  auditProjectBudgetTags,
   getAllActiveProjectBudgetStatuses,
   getProjectBudgetStatus,
   getProjectBudgetStatusExcludingUsers,
@@ -40,7 +41,7 @@ const handler = createMcpHandler(
           content: [
             {
               type: "text",
-              text: "MCP server is alive :rocket:",
+              text: "MCP server is alive :rocket: | build: budget-tag-audit-v2",
             },
           ],
         };
@@ -662,6 +663,59 @@ const handler = createMcpHandler(
         } catch (error) {
           console.error(
             ":x: get_all_active_project_budget_statuses failed:",
+            error
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Blikk error: ${error.message}`
+                    : "Unknown Blikk error",
+              },
+            ],
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "audit_project_budget_tags",
+      {
+        title: "Audit Project Budget Tags",
+        description:
+          "Audits project labels used for budget classification. Returns projects with exactly one valid budget tag, projects missing a budget tag, projects with multiple conflicting budget tags, and counts for Timbank, Projekt, Retainer and Löpande. Other tags are ignored. By default only active projects are included.",
+        inputSchema: {
+          activeOnly: z.boolean().optional(),
+        },
+      },
+      async ({ activeOnly }) => {
+        console.log(
+          ":arrow_right: audit_project_budget_tags tool invoked"
+        );
+
+        try {
+          const report = await auditProjectBudgetTags(
+            activeOnly ?? true
+          );
+
+          console.log(
+            ":white_check_mark: auditProjectBudgetTags() completed"
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(report, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          console.error(
+            ":x: audit_project_budget_tags failed:",
             error
           );
 
