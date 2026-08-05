@@ -138,6 +138,10 @@ export async function getAllUsers() {
   );
 }
 
+export async function getUser(userId: number | string) {
+  return blikkGet<unknown>(`/v1/Admin/Users/${userId}`);
+}
+
 export async function getProjects(params?: {
   page?: number;
   pageSize?: number;
