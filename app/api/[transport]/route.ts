@@ -147,7 +147,7 @@ const handler = createMcpHandler(
           content: [
             {
               type: "text",
-              text: "MCP server is alive :rocket: | build: user-profile-v6",
+                text: "MCP server is alive :rocket: | build: user-tag-filter-v1",
             },
           ],
         };
@@ -749,15 +749,22 @@ const handler = createMcpHandler(
       {
         title: "Get Project Budget Status Excluding Users",
         description:
-          "Calculates budget status after excluding selected users, using the project's Timbank, Projekt, Retainer or Löpande tag. For Retainer projects, fromDate and toDate select the period and every calendar month touched counts as one full monthly budget. Without dates, the current calendar month is used. Dates must use YYYY-MM-DD.",
+          "Calculates budget status after excluding selected users and/or users with selected employee tags, using the project's Timbank, Projekt, Retainer or Löpande tag. Use excludeUsers for names and excludeUserTags for tags such as Praktikant. A user matched by both is only excluded once. For Retainer projects, fromDate and toDate select the period and every calendar month touched counts as one full monthly budget. Without dates, the current calendar month is used. Dates must use YYYY-MM-DD.",
         inputSchema: {
           project: z.string(),
-          excludeUsers: z.array(z.string()).min(1),
+          excludeUsers: z.array(z.string()).optional(),
+          excludeUserTags: z.array(z.string()).optional(),
           fromDate: z.string().optional(),
           toDate: z.string().optional(),
         },
       },
-      async ({ project, excludeUsers, fromDate, toDate }) => {
+      async ({
+        project,
+        excludeUsers,
+        excludeUserTags,
+        fromDate,
+        toDate,
+      }) => {
         console.log(
           ":arrow_right: get_project_budget_status_excluding_users tool invoked"
         );
@@ -770,9 +777,10 @@ const handler = createMcpHandler(
           const budgetStatus =
             await getProjectBudgetStatusExcludingUsers(
               project,
-              excludeUsers,
+              excludeUsers ?? [],
               fromDate,
-              toDate
+              toDate,
+              excludeUserTags ?? []
             );
 
           console.log(
