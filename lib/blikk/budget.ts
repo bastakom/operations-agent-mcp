@@ -1,4 +1,5 @@
 import {
+  getUser,
   getProjectTimeCalculation,
   getTimeReports,
 } from "./endpoints";
@@ -76,6 +77,8 @@ export type ExcludedUserBudgetItem = {
   userName: string;
   reportedHours: number;
   resolvedFrom: "time_reports" | "user_registry";
+  exclusionSources: ("user_name" | "user_tag")[];
+  matchedTags: string[];
 };
 
 export type ProjectBudgetStatusExcludingUsers = {
@@ -98,6 +101,7 @@ export type ProjectBudgetStatusExcludingUsers = {
   remainingPercent: number | null;
   isOverBudget: boolean | null;
   overBudgetHours: number | null;
+  excludedUserTags: string[];
   excludedUsers: ExcludedUserBudgetItem[];
   warnings: string[];
 };
@@ -547,6 +551,53 @@ function normalizeName(name: string): string {
   return name.trim().toLocaleLowerCase("sv-SE");
 }
 
+function getUserTagNames(userDetail: unknown): string[] {
+  if (!userDetail || typeof userDetail !== "object") {
+    return [];
+  }
+
+  const tags = (userDetail as { tags?: unknown }).tags;
+
+  if (!Array.isArray(tags)) {
+    return [];
+  }
+
+  const uniqueNames = new Set<string>();
+
+  for (const tag of tags) {
+    if (!tag || typeof tag !== "object") {
+      continue;
+    }
+
+    const candidate = tag as { name?: unknown; title?: unknown };
+    const name =
+      typeof candidate.name === "string"
+        ? candidate.name
+        : typeof candidate.title === "string"
+          ? candidate.title
+          : null;
+
+    if (name && name.trim().length > 0) {
+      uniqueNames.add(name.trim());
+    }
+  }
+
+  return [...uniqueNames];
+}
+
+function getMatchingUserTags(
+  userDetail: unknown,
+  requestedTags: string[]
+): string[] {
+  const requestedTagNames = new Set(
+    requestedTags.map((tag) => normalizeName(tag))
+  );
+
+  return getUserTagNames(userDetail).filter((tag) =>
+    requestedTagNames.has(normalizeName(tag))
+  );
+}
+
 function getReportedProjectUsers(
   reports: TimeReport[]
 ): ReportedProjectUser[] {
@@ -782,24 +833,36 @@ export async function getProjectBudgetStatus(
 
 export async function getProjectBudgetStatusExcludingUsers(
   projectName: string,
-  excludedUserNames: string[],
+  excludedUserNames: string[] = [],
   fromDate?: string,
-  toDate?: string
+  toDate?: string,
+  excludedUserTags: string[] = []
 ): Promise<ProjectBudgetStatusExcludingUsers> {
   const cleanedUserNames = excludedUserNames
     .map((userName) => userName.trim())
     .filter((userName) => userName.length > 0);
+  const userTagsByNormalizedName = new Map<string, string>();
 
-  if (cleanedUserNames.length === 0) {
+  for (const rawTag of excludedUserTags) {
+    const tag = rawTag.trim();
+
+    if (tag.length > 0) {
+      userTagsByNormalizedName.set(normalizeName(tag), tag);
+    }
+  }
+
+  const cleanedUserTags = [...userTagsByNormalizedName.values()];
+
+  if (cleanedUserNames.length === 0 && cleanedUserTags.length === 0) {
     throw new Error(
-      "At least one user name must be provided for exclusion."
+      "At least one user name or user tag must be provided for exclusion."
     );
   }
 
   console.log(
-    `Calculating budget for '${projectName}' excluding: ${cleanedUserNames.join(
+    `Calculating budget for '${projectName}' excluding users: ${cleanedUserNames.join(
       ", "
-    )}`
+    ) || "none"}; tags: ${cleanedUserTags.join(", ") || "none"}`
   );
 
   const project = await resolveProject(projectName);
@@ -827,9 +890,43 @@ export async function getProjectBudgetStatusExcludingUsers(
   const totalReportedHours = sumReportedHours(allReports);
   const reportedUsers = getReportedProjectUsers(allReports);
   let allTimeReportedUsers: ReportedProjectUser[] | null = null;
+  const warnings = [...context.warnings];
+  const excludedUsersById = new Map<string, ExcludedUserBudgetItem>();
 
-  const excludedUsers: ExcludedUserBudgetItem[] = [];
-  const resolvedUserIds = new Set<string>();
+  function addExcludedUser(
+    user: {
+      requestedName: string;
+      userId: string;
+      userName: string;
+      reportedHours: number;
+      resolvedFrom: "time_reports" | "user_registry";
+    },
+    source: "user_name" | "user_tag",
+    matchedTags: string[] = []
+  ): void {
+    const existing = excludedUsersById.get(user.userId);
+
+    if (existing) {
+      if (!existing.exclusionSources.includes(source)) {
+        existing.exclusionSources.push(source);
+      }
+
+      for (const tag of matchedTags) {
+        if (!existing.matchedTags.includes(tag)) {
+          existing.matchedTags.push(tag);
+        }
+      }
+
+      return;
+    }
+
+    excludedUsersById.set(user.userId, {
+      ...user,
+      reportedHours: round(user.reportedHours),
+      exclusionSources: [source],
+      matchedTags: [...matchedTags],
+    });
+  }
 
   for (const requestedName of cleanedUserNames) {
     let reportedUser = resolveUserFromTimeReports(
@@ -874,23 +971,61 @@ export async function getProjectBudgetStatusExcludingUsers(
       resolvedFrom = "user_registry";
     }
 
-    if (resolvedUserIds.has(userId)) {
-      console.log(
-        `Skipping duplicate excluded user '${requestedName}' with ID ${userId}`
-      );
-      continue;
-    }
-
-    resolvedUserIds.add(userId);
-
-    excludedUsers.push({
+    addExcludedUser({
       requestedName,
       userId,
       userName,
-      reportedHours: round(reportedHours),
+      reportedHours,
       resolvedFrom,
-    });
+    }, "user_name");
   }
+
+  if (cleanedUserTags.length > 0) {
+    for (let index = 0; index < reportedUsers.length; index += 1) {
+      const reportedUser = reportedUsers[index];
+
+      if (index > 0) {
+        await wait(REQUEST_DELAY_MS);
+      }
+
+      try {
+        const userDetail = await withRateLimitRetry(
+          () => getUser(reportedUser.userId),
+          `User profile for ${reportedUser.userName} (ID ${reportedUser.userId})`
+        );
+        const matchedTags = getMatchingUserTags(
+          userDetail,
+          cleanedUserTags
+        );
+
+        if (matchedTags.length > 0) {
+          addExcludedUser({
+            requestedName: matchedTags.join(", "),
+            userId: reportedUser.userId,
+            userName: reportedUser.userName,
+            reportedHours: reportedUser.reportedHours,
+            resolvedFrom: "time_reports",
+          }, "user_tag", matchedTags);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+
+        warnings.push(
+          `Could not inspect user tags for '${reportedUser.userName}' (ID ${reportedUser.userId}): ${message}`
+        );
+      }
+    }
+  }
+
+  const excludedUsers = [...excludedUsersById.values()]
+    .map((user) => ({
+      ...user,
+      exclusionSources: [...user.exclusionSources].sort(),
+      matchedTags: [...user.matchedTags].sort((a, b) =>
+        a.localeCompare(b, "sv")
+      ),
+    }))
+    .sort((a, b) => a.userName.localeCompare(b.userName, "sv"));
 
   const excludedReportedHours = excludedUsers.reduce(
     (sum, user) => sum + user.reportedHours,
@@ -933,8 +1068,9 @@ export async function getProjectBudgetStatusExcludingUsers(
     excludedReportedHours: round(excludedReportedHours),
     adjustedReportedHours: round(adjustedReportedHours),
     ...metrics,
+    excludedUserTags: cleanedUserTags,
     excludedUsers,
-    warnings: context.warnings,
+    warnings,
   };
 }
 
