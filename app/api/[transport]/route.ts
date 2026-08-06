@@ -1,6 +1,7 @@
 import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
 import {
+  getUser,
   getAllUsers,
   getAllProjects,
   getAllTimeReports,
@@ -12,6 +13,7 @@ import {
 import {
   resolvePlanningUserId,
   resolveProjectId,
+  resolveUserId,
 } from "../../../lib/blikk/resolvers";
 import {
   auditProjectBudgetTags,
@@ -22,6 +24,110 @@ import {
 import { getProjectCatalogView } from "../../../lib/blikk/project-catalog";
 
 export const maxDuration = 300;
+
+type BlikkUserMetadata =
+  | string
+  | {
+      id?: number | string | null;
+      name?: string | null;
+      title?: string | null;
+      color?: string | null;
+    };
+
+type BlikkUserDetail = {
+  id: number | string;
+  firstName?: string | null;
+  lastName?: string | null;
+  license?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  department?: BlikkUserMetadata | null;
+  costCenter?: BlikkUserMetadata | null;
+  salaryType?: string | number | null;
+  costPerHour?: number | null;
+  schedule?: BlikkUserMetadata | null;
+  planningCapacityInPercent?: number | null;
+  tags?: BlikkUserMetadata[] | null;
+  isRestricted?: boolean | null;
+};
+
+type SafeMetadata = {
+  id: string | null;
+  name: string;
+  color: string | null;
+};
+
+function toSafeMetadata(
+  value: BlikkUserMetadata | null | undefined
+): SafeMetadata | null {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    const name = value.trim();
+
+    return name
+      ? {
+          id: null,
+          name,
+          color: null,
+        }
+      : null;
+  }
+
+  const name = (value.name ?? value.title ?? "").trim();
+
+  if (!name) {
+    return null;
+  }
+
+  return {
+    id:
+      value.id !== undefined && value.id !== null
+        ? String(value.id)
+        : null,
+    name,
+    color: value.color ?? null,
+  };
+}
+
+function createSafeUserProfile(
+  requestedUser: string,
+  detail: BlikkUserDetail
+) {
+  const userName = `${detail.firstName ?? ""} ${
+    detail.lastName ?? ""
+  }`.trim();
+
+  const tags = (detail.tags ?? [])
+    .map(toSafeMetadata)
+    .filter((tag): tag is SafeMetadata => tag !== null);
+
+  return {
+    requestedUser,
+    userId: String(detail.id),
+    userName,
+    tags,
+    tagNames: tags.map((tag) => tag.name),
+    costPerHour:
+      typeof detail.costPerHour === "number"
+        ? detail.costPerHour
+        : null,
+    planningCapacityInPercent:
+      typeof detail.planningCapacityInPercent === "number"
+        ? detail.planningCapacityInPercent
+        : null,
+    department: toSafeMetadata(detail.department),
+    costCenter: toSafeMetadata(detail.costCenter),
+    salaryType: detail.salaryType ?? null,
+    schedule: toSafeMetadata(detail.schedule),
+    license: detail.license ?? null,
+    startDate: detail.startDate ?? null,
+    endDate: detail.endDate ?? null,
+    isRestricted: detail.isRestricted ?? null,
+  };
+}
 
 const handler = createMcpHandler(
   (server) => {
@@ -41,7 +147,7 @@ const handler = createMcpHandler(
           content: [
             {
               type: "text",
-              text: "MCP server is alive :rocket: | build: all-functions-pagination-v4",
+              text: "MCP server is alive :rocket: | build: user-profile-v5",
             },
           ],
         };
@@ -75,6 +181,69 @@ const handler = createMcpHandler(
           };
         } catch (error) {
           console.error(":x: get_users failed:", error);
+
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Blikk error: ${error.message}`
+                    : "Unknown Blikk error",
+              },
+            ],
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "get_user_profile",
+      {
+        title: "Get User Profile",
+        description:
+          "Resolves a full or unique partial user name and returns a privacy-safe Blikk user profile with user tags, cost per hour, planning capacity, department, cost center, salary type and schedule. Sensitive personal fields are never returned.",
+        inputSchema: {
+          user: z.string(),
+        },
+      },
+      async ({ user }) => {
+        console.log(":arrow_right: get_user_profile tool invoked");
+
+        try {
+          console.log(
+            ":arrow_right: Resolving user name to Blikk user ID"
+          );
+
+          const userId = await resolveUserId(user);
+
+          console.log(
+            `:white_check_mark: Resolved '${user}' to user ID ${userId}`
+          );
+          console.log(":arrow_right: Calling getUser()");
+
+          const detail = (await getUser(userId)) as BlikkUserDetail;
+
+          if (!detail || detail.id === undefined || detail.id === null) {
+            throw new Error(
+              `Blikk returned an unexpected user detail response for user ID ${userId}.`
+            );
+          }
+
+          const profile = createSafeUserProfile(user, detail);
+
+          console.log(":white_check_mark: get_user_profile completed");
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(profile, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          console.error(":x: get_user_profile failed:", error);
 
           return {
             content: [
