@@ -76,7 +76,10 @@ export type ExcludedUserBudgetItem = {
   userId: string;
   userName: string;
   reportedHours: number;
-  resolvedFrom: "time_reports" | "user_registry";
+  resolvedFrom:
+    | "time_reports"
+    | "user_registry"
+    | "historical_tag_registry";
   exclusionSources: ("user_name" | "user_tag")[];
   matchedTags: string[];
 };
@@ -204,6 +207,21 @@ const BUDGET_TAGS: Record<string, BudgetType> = {
   projekt: "project",
   retainer: "retainer",
   "löpande": "ongoing",
+};
+
+// Historical user tags
+//
+// Add a person here BEFORE their Blikk account is deleted. Use the Blikk user
+// ID from a time report, never just the person's name. This lets old reports
+// keep their correct tag-based treatment after the account is gone.
+//
+// Example:
+// "12345": { userName: "Anna Andersson", tags: ["Praktikant"] },
+const HISTORICAL_USER_TAGS: Record<
+  string,
+  { userName: string; tags: string[] }
+> = {
+  // Add former employees here.
 };
 
 type BudgetContext = {
@@ -585,16 +603,39 @@ function getUserTagNames(userDetail: unknown): string[] {
   return [...uniqueNames];
 }
 
-function getMatchingUserTags(
-  userDetail: unknown,
+function getHistoricalUserTagNames(userId: string): string[] {
+  const entry = HISTORICAL_USER_TAGS[userId];
+
+  if (!entry) {
+    return [];
+  }
+
+  return entry.tags
+    .filter((tag) => typeof tag === "string")
+    .map((tag) => tag.trim())
+    .filter((tag) => tag.length > 0);
+}
+
+function getMatchingTagNames(
+  availableTags: string[],
   requestedTags: string[]
 ): string[] {
   const requestedTagNames = new Set(
     requestedTags.map((tag) => normalizeName(tag))
   );
 
-  return getUserTagNames(userDetail).filter((tag) =>
+  return availableTags.filter((tag) =>
     requestedTagNames.has(normalizeName(tag))
+  );
+}
+
+function getMatchingUserTags(
+  userDetail: unknown,
+  requestedTags: string[]
+): string[] {
+  return getMatchingTagNames(
+    getUserTagNames(userDetail),
+    requestedTags
   );
 }
 
@@ -1009,9 +1050,27 @@ export async function getProjectBudgetStatusExcludingUsers(
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        const historicalTags = getHistoricalUserTagNames(
+          reportedUser.userId
+        );
+        const matchedHistoricalTags = getMatchingTagNames(
+          historicalTags,
+          cleanedUserTags
+        );
+
+        if (matchedHistoricalTags.length > 0) {
+          addExcludedUser({
+            requestedName: matchedHistoricalTags.join(", "),
+            userId: reportedUser.userId,
+            userName: reportedUser.userName,
+            reportedHours: reportedUser.reportedHours,
+            resolvedFrom: "historical_tag_registry",
+          }, "user_tag", matchedHistoricalTags);
+          continue;
+        }
 
         warnings.push(
-          `Could not inspect user tags for '${reportedUser.userName}' (ID ${reportedUser.userId}): ${message}`
+          `Could not inspect user tags for '${reportedUser.userName}' (ID ${reportedUser.userId}): ${message}. No matching historical tags are configured.`
         );
       }
     }
