@@ -147,7 +147,7 @@ const handler = createMcpHandler(
           content: [
             {
               type: "text",
-              text: "MCP server is alive :rocket: | build: user-profile-v5",
+              text: "MCP server is alive :rocket: | build: user-profile-v6",
             },
           ],
         };
@@ -158,13 +158,52 @@ const handler = createMcpHandler(
       "get_users",
       {
         title: "Get Users",
-        description: "Fetches all users from Blikk.",
-        inputSchema: {},
+        description:
+          "Without a user name, fetches all users from Blikk. With user, resolves a full or unique partial name and returns a privacy-safe detailed profile with tags, cost per hour, planning capacity, department, cost center, salary type and schedule.",
+        inputSchema: {
+          user: z.string().optional(),
+        },
       },
-      async () => {
+      async ({ user }) => {
         console.log(":arrow_right: get_users tool invoked");
 
         try {
+          if (user) {
+            console.log(
+              ":arrow_right: Resolving user name to Blikk user ID"
+            );
+
+            const userId = await resolveUserId(user);
+
+            console.log(
+              `:white_check_mark: Resolved '${user}' to user ID ${userId}`
+            );
+            console.log(":arrow_right: Calling getUser()");
+
+            const detail = (await getUser(userId)) as BlikkUserDetail;
+
+            if (!detail || detail.id === undefined || detail.id === null) {
+              throw new Error(
+                `Blikk returned an unexpected user detail response for user ID ${userId}.`
+              );
+            }
+
+            const profile = createSafeUserProfile(user, detail);
+
+            console.log(
+              ":white_check_mark: get_users detailed profile completed"
+            );
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify(profile, null, 2),
+                },
+              ],
+            };
+          }
+
           console.log(":arrow_right: Calling getAllUsers()");
 
           const users = await getAllUsers();
@@ -181,69 +220,6 @@ const handler = createMcpHandler(
           };
         } catch (error) {
           console.error(":x: get_users failed:", error);
-
-          return {
-            content: [
-              {
-                type: "text",
-                text:
-                  error instanceof Error
-                    ? `Blikk error: ${error.message}`
-                    : "Unknown Blikk error",
-              },
-            ],
-          };
-        }
-      }
-    );
-
-    server.registerTool(
-      "get_user_profile",
-      {
-        title: "Get User Profile",
-        description:
-          "Resolves a full or unique partial user name and returns a privacy-safe Blikk user profile with user tags, cost per hour, planning capacity, department, cost center, salary type and schedule. Sensitive personal fields are never returned.",
-        inputSchema: {
-          user: z.string(),
-        },
-      },
-      async ({ user }) => {
-        console.log(":arrow_right: get_user_profile tool invoked");
-
-        try {
-          console.log(
-            ":arrow_right: Resolving user name to Blikk user ID"
-          );
-
-          const userId = await resolveUserId(user);
-
-          console.log(
-            `:white_check_mark: Resolved '${user}' to user ID ${userId}`
-          );
-          console.log(":arrow_right: Calling getUser()");
-
-          const detail = (await getUser(userId)) as BlikkUserDetail;
-
-          if (!detail || detail.id === undefined || detail.id === null) {
-            throw new Error(
-              `Blikk returned an unexpected user detail response for user ID ${userId}.`
-            );
-          }
-
-          const profile = createSafeUserProfile(user, detail);
-
-          console.log(":white_check_mark: get_user_profile completed");
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(profile, null, 2),
-              },
-            ],
-          };
-        } catch (error) {
-          console.error(":x: get_user_profile failed:", error);
 
           return {
             content: [
