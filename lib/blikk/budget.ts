@@ -940,7 +940,10 @@ export async function getProjectBudgetStatusExcludingUsers(
       userId: string;
       userName: string;
       reportedHours: number;
-      resolvedFrom: "time_reports" | "user_registry";
+      resolvedFrom:
+        | "time_reports"
+        | "user_registry"
+        | "historical_tag_registry";
     },
     source: "user_name" | "user_tag",
     matchedTags: string[] = []
