@@ -221,7 +221,14 @@ const HISTORICAL_USER_TAGS: Record<
   string,
   { userName: string; tags: string[] }
 > = {
-  // Add former employees here.
+  "14943": {
+    userName: "Ann Vu",
+    tags: ["Praktikant"],
+  },
+  "14944": {
+    userName: "Tyler Thomas",
+    tags: ["Praktikant"],
+  },
 };
 
 type BudgetContext = {
@@ -1032,6 +1039,14 @@ export async function getProjectBudgetStatusExcludingUsers(
         await wait(REQUEST_DELAY_MS);
       }
 
+      const historicalTags = getHistoricalUserTagNames(
+        reportedUser.userId
+      );
+      const matchedHistoricalTags = getMatchingTagNames(
+        historicalTags,
+        cleanedUserTags
+      );
+
       try {
         const userDetail = await withRateLimitRetry(
           () => getUser(reportedUser.userId),
@@ -1050,16 +1065,19 @@ export async function getProjectBudgetStatusExcludingUsers(
             reportedHours: reportedUser.reportedHours,
             resolvedFrom: "time_reports",
           }, "user_tag", matchedTags);
+        } else if (matchedHistoricalTags.length > 0) {
+          // Blikk can return an empty user object for a deleted user instead
+          // of an HTTP error. The registry must cover that case as well.
+          addExcludedUser({
+            requestedName: matchedHistoricalTags.join(", "),
+            userId: reportedUser.userId,
+            userName: reportedUser.userName,
+            reportedHours: reportedUser.reportedHours,
+            resolvedFrom: "historical_tag_registry",
+          }, "user_tag", matchedHistoricalTags);
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        const historicalTags = getHistoricalUserTagNames(
-          reportedUser.userId
-        );
-        const matchedHistoricalTags = getMatchingTagNames(
-          historicalTags,
-          cleanedUserTags
-        );
 
         if (matchedHistoricalTags.length > 0) {
           addExcludedUser({
