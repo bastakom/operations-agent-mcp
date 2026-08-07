@@ -599,11 +599,17 @@ function isNotFoundError(error: unknown): boolean {
 
   const message = error.message.toLowerCase();
 
+  const notFoundMessages = [
+    "not found",
+    "could not be found",
+    "cannot be found",
+    "does not exist",
+    "doesn't exist",
+  ];
+
   return (
-    message.includes("(404)") ||
-    message.includes(" 404") ||
-    message.includes("404 ") ||
-    message.includes("not found")
+    /\b404\b/.test(message) ||
+    notFoundMessages.some((pattern) => message.includes(pattern))
   );
 }
 
