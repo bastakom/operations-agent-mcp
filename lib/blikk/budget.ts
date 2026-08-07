@@ -84,6 +84,19 @@ export type ExcludedUserBudgetItem = {
   matchedTags: string[];
 };
 
+export type UserTagResolutionItem = {
+  userId: string;
+  userName: string;
+  reportedHours: number;
+  tagNames: string[];
+  tagSource:
+    | "current_user_profile"
+    | "historical_tag_registry"
+    | "unresolved";
+  matchedExclusionTags: string[];
+  excluded: boolean;
+};
+
 export type ProjectBudgetStatusExcludingUsers = {
   budgetLogicVersion: "budget-types-v1";
   requestedProject: string;
@@ -106,6 +119,7 @@ export type ProjectBudgetStatusExcludingUsers = {
   overBudgetHours: number | null;
   excludedUserTags: string[];
   excludedUsers: ExcludedUserBudgetItem[];
+  userTagResolution: UserTagResolutionItem[];
   warnings: string[];
 };
 
@@ -977,6 +991,25 @@ export async function getProjectBudgetStatusExcludingUsers(
   let allTimeReportedUsers: ReportedProjectUser[] | null = null;
   const warnings = [...context.warnings];
   const excludedUsersById = new Map<string, ExcludedUserBudgetItem>();
+  const userTagResolutionById = new Map<
+    string,
+    Omit<UserTagResolutionItem, "excluded">
+  >();
+
+  function setUserTagResolution(
+    item: Omit<UserTagResolutionItem, "excluded">
+  ): void {
+    userTagResolutionById.set(item.userId, {
+      ...item,
+      reportedHours: round(item.reportedHours),
+      tagNames: [...item.tagNames].sort((a, b) =>
+        a.localeCompare(b, "sv")
+      ),
+      matchedExclusionTags: [...item.matchedExclusionTags].sort((a, b) =>
+        a.localeCompare(b, "sv")
+      ),
+    });
+  }
 
   function addExcludedUser(
     user: {
@@ -1091,10 +1124,21 @@ export async function getProjectBudgetStatusExcludingUsers(
         );
 
         if (hasReadableUserProfile(userDetail)) {
-          const matchedTags = getMatchingUserTags(
-            userDetail,
+          // A readable current Blikk profile always wins over historical data.
+          const currentTags = getUserTagNames(userDetail);
+          const matchedTags = getMatchingTagNames(
+            currentTags,
             cleanedUserTags
           );
+
+          setUserTagResolution({
+            userId: reportedUser.userId,
+            userName: reportedUser.userName,
+            reportedHours: reportedUser.reportedHours,
+            tagNames: currentTags,
+            tagSource: "current_user_profile",
+            matchedExclusionTags: matchedTags,
+          });
 
           if (matchedTags.length > 0) {
             addExcludedUser({
@@ -1105,37 +1149,103 @@ export async function getProjectBudgetStatusExcludingUsers(
               resolvedFrom: "time_reports",
             }, "user_tag", matchedTags);
           }
-        } else if (matchedHistoricalTags.length > 0) {
-          // Blikk can return an empty user object for a deleted user instead
-          // of an HTTP error. Historical tags are only used when no readable
-          // current profile exists.
-          addExcludedUser({
-            requestedName: matchedHistoricalTags.join(", "),
-            userId: reportedUser.userId,
-            userName: reportedUser.userName,
-            reportedHours: reportedUser.reportedHours,
-            resolvedFrom: "historical_tag_registry",
-          }, "user_tag", matchedHistoricalTags);
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
 
-        if (
-          isNotFoundError(error) &&
-          matchedHistoricalTags.length > 0
-        ) {
-          addExcludedUser({
-            requestedName: matchedHistoricalTags.join(", "),
-            userId: reportedUser.userId,
-            userName: reportedUser.userName,
-            reportedHours: reportedUser.reportedHours,
-            resolvedFrom: "historical_tag_registry",
-          }, "user_tag", matchedHistoricalTags);
           continue;
         }
 
+        // Blikk can return an empty object for a deleted user instead of 404.
+        // In that confirmed no-readable-profile case, historical metadata is
+        // authoritative for tag filtering.
+        if (historicalTags.length > 0) {
+          setUserTagResolution({
+            userId: reportedUser.userId,
+            userName: reportedUser.userName,
+            reportedHours: reportedUser.reportedHours,
+            tagNames: historicalTags,
+            tagSource: "historical_tag_registry",
+            matchedExclusionTags: matchedHistoricalTags,
+          });
+
+          if (matchedHistoricalTags.length > 0) {
+            addExcludedUser({
+              requestedName: matchedHistoricalTags.join(", "),
+              userId: reportedUser.userId,
+              userName: reportedUser.userName,
+              reportedHours: reportedUser.reportedHours,
+              resolvedFrom: "historical_tag_registry",
+            }, "user_tag", matchedHistoricalTags);
+          }
+
+          continue;
+        }
+
+        setUserTagResolution({
+          userId: reportedUser.userId,
+          userName: reportedUser.userName,
+          reportedHours: reportedUser.reportedHours,
+          tagNames: [],
+          tagSource: "unresolved",
+          matchedExclusionTags: [],
+        });
+
         warnings.push(
-          `Could not inspect user tags for '${reportedUser.userName}' (ID ${reportedUser.userId}): ${message}. Historical tags were not used because the profile lookup did not return a confirmed missing/empty profile.`
+          `Could not resolve tags for historical user '${reportedUser.userName}' (ID ${reportedUser.userId}). Blikk returned no readable user profile and no historical tags are configured.`
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+
+        if (isNotFoundError(error)) {
+          if (historicalTags.length > 0) {
+            setUserTagResolution({
+              userId: reportedUser.userId,
+              userName: reportedUser.userName,
+              reportedHours: reportedUser.reportedHours,
+              tagNames: historicalTags,
+              tagSource: "historical_tag_registry",
+              matchedExclusionTags: matchedHistoricalTags,
+            });
+
+            if (matchedHistoricalTags.length > 0) {
+              addExcludedUser({
+                requestedName: matchedHistoricalTags.join(", "),
+                userId: reportedUser.userId,
+                userName: reportedUser.userName,
+                reportedHours: reportedUser.reportedHours,
+                resolvedFrom: "historical_tag_registry",
+              }, "user_tag", matchedHistoricalTags);
+            }
+
+            continue;
+          }
+
+          setUserTagResolution({
+            userId: reportedUser.userId,
+            userName: reportedUser.userName,
+            reportedHours: reportedUser.reportedHours,
+            tagNames: [],
+            tagSource: "unresolved",
+            matchedExclusionTags: [],
+          });
+
+          warnings.push(
+            `Could not resolve tags for historical user '${reportedUser.userName}' (ID ${reportedUser.userId}). The Blikk user profile no longer exists and no historical tags are configured.`
+          );
+          continue;
+        }
+
+        // Do not fall back to historical tags on temporary/technical errors.
+        // The current profile may still exist and its current tags must win.
+        setUserTagResolution({
+          userId: reportedUser.userId,
+          userName: reportedUser.userName,
+          reportedHours: reportedUser.reportedHours,
+          tagNames: [],
+          tagSource: "unresolved",
+          matchedExclusionTags: [],
+        });
+
+        warnings.push(
+          `Could not inspect user tags for '${reportedUser.userName}' (ID ${reportedUser.userId}): ${message}. Tag status is unresolved; historical tags were not applied because the current profile could not be reliably checked.`
         );
       }
     }
@@ -1148,6 +1258,15 @@ export async function getProjectBudgetStatusExcludingUsers(
       matchedTags: [...user.matchedTags].sort((a, b) =>
         a.localeCompare(b, "sv")
       ),
+    }))
+    .sort((a, b) => a.userName.localeCompare(b.userName, "sv"));
+
+  const userTagResolution: UserTagResolutionItem[] = [
+    ...userTagResolutionById.values(),
+  ]
+    .map((item) => ({
+      ...item,
+      excluded: excludedUsersById.has(item.userId),
     }))
     .sort((a, b) => a.userName.localeCompare(b.userName, "sv"));
 
@@ -1194,6 +1313,7 @@ export async function getProjectBudgetStatusExcludingUsers(
     ...metrics,
     excludedUserTags: cleanedUserTags,
     excludedUsers,
+    userTagResolution,
     warnings,
   };
 }
