@@ -221,6 +221,10 @@ const HISTORICAL_USER_TAGS: Record<
   string,
   { userName: string; tags: string[] }
 > = {
+  "13666": {
+    userName: "Albert Grönvall",
+    tags: ["Praktikant"],
+  },
   "14943": {
     userName: "Ann Vu",
     tags: ["Praktikant"],
