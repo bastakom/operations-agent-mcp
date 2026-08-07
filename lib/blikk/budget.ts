@@ -583,6 +583,30 @@ function normalizeName(name: string): string {
   return name.trim().toLocaleLowerCase("sv-SE");
 }
 
+function hasReadableUserProfile(userDetail: unknown): boolean {
+  return (
+    userDetail !== null &&
+    typeof userDetail === "object" &&
+    !Array.isArray(userDetail) &&
+    Object.keys(userDetail as Record<string, unknown>).length > 0
+  );
+}
+
+function isNotFoundError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+
+  return (
+    message.includes("(404)") ||
+    message.includes(" 404") ||
+    message.includes("404 ") ||
+    message.includes("not found")
+  );
+}
+
 function getUserTagNames(userDetail: unknown): string[] {
   if (!userDetail || typeof userDetail !== "object") {
     return [];
@@ -1059,22 +1083,26 @@ export async function getProjectBudgetStatusExcludingUsers(
           () => getUser(reportedUser.userId),
           `User profile for ${reportedUser.userName} (ID ${reportedUser.userId})`
         );
-        const matchedTags = getMatchingUserTags(
-          userDetail,
-          cleanedUserTags
-        );
 
-        if (matchedTags.length > 0) {
-          addExcludedUser({
-            requestedName: matchedTags.join(", "),
-            userId: reportedUser.userId,
-            userName: reportedUser.userName,
-            reportedHours: reportedUser.reportedHours,
-            resolvedFrom: "time_reports",
-          }, "user_tag", matchedTags);
+        if (hasReadableUserProfile(userDetail)) {
+          const matchedTags = getMatchingUserTags(
+            userDetail,
+            cleanedUserTags
+          );
+
+          if (matchedTags.length > 0) {
+            addExcludedUser({
+              requestedName: matchedTags.join(", "),
+              userId: reportedUser.userId,
+              userName: reportedUser.userName,
+              reportedHours: reportedUser.reportedHours,
+              resolvedFrom: "time_reports",
+            }, "user_tag", matchedTags);
+          }
         } else if (matchedHistoricalTags.length > 0) {
           // Blikk can return an empty user object for a deleted user instead
-          // of an HTTP error. The registry must cover that case as well.
+          // of an HTTP error. Historical tags are only used when no readable
+          // current profile exists.
           addExcludedUser({
             requestedName: matchedHistoricalTags.join(", "),
             userId: reportedUser.userId,
@@ -1086,7 +1114,10 @@ export async function getProjectBudgetStatusExcludingUsers(
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
 
-        if (matchedHistoricalTags.length > 0) {
+        if (
+          isNotFoundError(error) &&
+          matchedHistoricalTags.length > 0
+        ) {
           addExcludedUser({
             requestedName: matchedHistoricalTags.join(", "),
             userId: reportedUser.userId,
@@ -1098,7 +1129,7 @@ export async function getProjectBudgetStatusExcludingUsers(
         }
 
         warnings.push(
-          `Could not inspect user tags for '${reportedUser.userName}' (ID ${reportedUser.userId}): ${message}. No matching historical tags are configured.`
+          `Could not inspect user tags for '${reportedUser.userName}' (ID ${reportedUser.userId}): ${message}. Historical tags were not used because the profile lookup did not return a confirmed missing/empty profile.`
         );
       }
     }
