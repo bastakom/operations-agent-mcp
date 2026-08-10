@@ -22,6 +22,7 @@ import {
   getProjectBudgetStatusExcludingUsers,
 } from "../../../lib/blikk/budget";
 import { getProjectCatalogView } from "../../../lib/blikk/project-catalog";
+import { inspectProjectFinanceSources } from "../../../lib/blikk/project-finance";
 
 export const maxDuration = 300;
 
@@ -147,10 +148,68 @@ const handler = createMcpHandler(
           content: [
             {
               type: "text",
-                text: "MCP server is alive :rocket: | build: user-tag-filter-v1",
+              text: "MCP server is alive :rocket: | build: project-finance-diagnostics-v1",
             },
           ],
         };
+      }
+    );
+
+    server.registerTool(
+      "inspect_project_finance_sources",
+      {
+        title: "Inspect Project Finance Sources",
+        description:
+          "Inspects supplier invoices, payment plans and material reports for a Blikk project. Returns diagnostic source data only and does not calculate authoritative revenue, cost, profit or gross margin. Optional dates use YYYY-MM-DD. The requested period is applied to supplier invoice dates; payment plans and material reports are returned for the full project because their list endpoints have no verified business-date filter.",
+        inputSchema: {
+          project: z.string(),
+          fromDate: z.string().optional(),
+          toDate: z.string().optional(),
+        },
+      },
+      async ({ project, fromDate, toDate }) => {
+        console.log(
+          ":arrow_right: inspect_project_finance_sources tool invoked"
+        );
+
+        try {
+          const diagnostics = await inspectProjectFinanceSources(
+            project,
+            fromDate,
+            toDate
+          );
+
+          console.log(
+            ":white_check_mark: inspectProjectFinanceSources() completed"
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(diagnostics, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          console.error(
+            ":x: inspect_project_finance_sources failed:",
+            error
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Blikk error: ${error.message}`
+                    : "Unknown Blikk error",
+              },
+            ],
+            isError: true,
+          };
+        }
       }
     );
 
