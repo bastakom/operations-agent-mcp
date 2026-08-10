@@ -15,6 +15,8 @@ export type CompletePagedResponse<T = unknown> = PagedResponse<T> & {
   isComplete: true;
 };
 
+export type BlikkRawItem = Record<string, unknown>;
+
 const PAGE_SIZE = 100;
 const PAGE_DELAY_MS = 1100;
 const MAX_RATE_LIMIT_RETRIES = 3;
@@ -81,16 +83,13 @@ async function fetchPageWithRetry<T>(
   throw new Error(`Could not fetch ${resourceName} page ${page}.`);
 }
 
-export async function fetchAllPages<T>(
+export async function fetchAllPages<T = unknown>(
   fetchPage: (page: number, pageSize: number) => Promise<unknown>,
   resourceName: string
 ): Promise<CompletePagedResponse<T>> {
-  const firstPage = await fetchPageWithRetry<T>(
-    fetchPage,
-    resourceName,
-    1
-  );
+  const firstPage = await fetchPageWithRetry<T>(fetchPage, resourceName, 1);
   const sourceTotalPages = Math.max(firstPage.totalPages, 1);
+  const sourceTotalItemCount = firstPage.totalItemCount;
   const items = [...firstPage.items];
 
   for (let page = 2; page <= sourceTotalPages; page += 1) {
@@ -103,6 +102,12 @@ export async function fetchAllPages<T>(
     );
 
     items.push(...response.items);
+  }
+
+  if (items.length !== sourceTotalItemCount) {
+    console.warn(
+      `Blikk reported ${sourceTotalItemCount} ${resourceName}, but ${items.length} items were fetched.`
+    );
   }
 
   return {
@@ -122,7 +127,7 @@ export async function getUsers(params?: {
   page?: number;
   pageSize?: number;
 }) {
-  return blikkGet<unknown>(
+  return blikkGet(
     "/v1/Admin/Users",
     paged({
       page: params?.page,
@@ -139,14 +144,14 @@ export async function getAllUsers() {
 }
 
 export async function getUser(userId: number | string) {
-  return blikkGet<unknown>(`/v1/Admin/Users/${userId}`);
+  return blikkGet(`/v1/Admin/Users/${userId}`);
 }
 
 export async function getProjects(params?: {
   page?: number;
   pageSize?: number;
 }) {
-  return blikkGet<unknown>(
+  return blikkGet(
     "/v1/Core/Projects",
     paged({
       page: params?.page,
@@ -172,7 +177,7 @@ export type TimeReportParams = {
 };
 
 export async function getTimeReports(params: TimeReportParams) {
-  return blikkGet<unknown>(
+  return blikkGet(
     "/v1/Core/TimeReports",
     paged({
       page: params.page,
@@ -189,8 +194,7 @@ export async function getAllTimeReports(
   params: Omit<TimeReportParams, "page" | "pageSize">
 ) {
   return fetchAllPages(
-    (page, pageSize) =>
-      getTimeReports({ ...params, page, pageSize }),
+    (page, pageSize) => getTimeReports({ ...params, page, pageSize }),
     "time reports"
   );
 }
@@ -206,7 +210,7 @@ export type UserDayStatisticsParams = {
 export async function getUserDayStatistics(
   params: UserDayStatisticsParams
 ) {
-  return blikkGet<unknown>(
+  return blikkGet(
     "/v1/Core/TimeReports/UserDayStatistics",
     paged({
       page: params.page,
@@ -229,9 +233,7 @@ export async function getAllUserDayStatistics(
 }
 
 export async function getProjectTimeCalculation(projectId: string) {
-  return blikkGet<unknown>(
-    `/v1/Core/Projects/${projectId}/TimeCalculation`
-  );
+  return blikkGet(`/v1/Core/Projects/${projectId}/TimeCalculation`);
 }
 
 export type ResourcePlanningUsersParams = {
@@ -246,7 +248,7 @@ export type ResourcePlanningUsersParams = {
 export async function getUsersWithResourcePlanning(
   params: ResourcePlanningUsersParams
 ) {
-  return blikkGet<unknown>(
+  return blikkGet(
     "/v1/Core/Planning/HasResourcePlanning/Users",
     paged({
       fromDate: params.fromDate,
@@ -283,7 +285,7 @@ export type PlanningSummariesParams = {
 export async function getPlanningSummariesForUser(
   params: PlanningSummariesParams
 ) {
-  return blikkGet<unknown>(
+  return blikkGet(
     "/v1/Core/Planning/GetPlanningSummaries/Projects",
     paged({
       userId: params.userId,
@@ -305,5 +307,93 @@ export async function getAllPlanningSummariesForUser(
     (page, pageSize) =>
       getPlanningSummariesForUser({ ...params, page, pageSize }),
     "planning summaries"
+  );
+}
+
+export type SupplierInvoiceParams = {
+  projectId: string;
+  invoiceDateFrom?: string;
+  invoiceDateTo?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+export async function getSupplierInvoices(
+  params: SupplierInvoiceParams
+) {
+  return blikkGet<PagedResponse<BlikkRawItem>>(
+    "/v1/Core/SupplierInvoices",
+    paged({
+      page: params.page,
+      pageSize: params.pageSize,
+      "filter.projectId": params.projectId,
+      "filter.invoiceDateFrom": params.invoiceDateFrom,
+      "filter.invoiceDateTo": params.invoiceDateTo,
+    })
+  );
+}
+
+export async function getAllSupplierInvoices(
+  params: Omit<SupplierInvoiceParams, "page" | "pageSize">
+) {
+  return fetchAllPages<BlikkRawItem>(
+    (page, pageSize) =>
+      getSupplierInvoices({ ...params, page, pageSize }),
+    "supplier invoices"
+  );
+}
+
+export type PaymentPlanParams = {
+  projectId: string;
+  page?: number;
+  pageSize?: number;
+};
+
+export async function getPaymentPlans(params: PaymentPlanParams) {
+  return blikkGet<PagedResponse<BlikkRawItem>>(
+    "/v1/Core/Paymentplans",
+    paged({
+      page: params.page,
+      pageSize: params.pageSize,
+      "filter.projectId": params.projectId,
+    })
+  );
+}
+
+export async function getAllPaymentPlans(
+  params: Omit<PaymentPlanParams, "page" | "pageSize">
+) {
+  return fetchAllPages<BlikkRawItem>(
+    (page, pageSize) => getPaymentPlans({ ...params, page, pageSize }),
+    "payment plans"
+  );
+}
+
+export type MaterialReportParams = {
+  projectId: string;
+  page?: number;
+  pageSize?: number;
+};
+
+export async function getMaterialReports(
+  params: MaterialReportParams
+) {
+  return blikkGet<PagedResponse<BlikkRawItem>>(
+    "/v1/Core/MaterialReports",
+    paged({
+      page: params.page,
+      pageSize: params.pageSize,
+      "filter.projectId": params.projectId,
+    })
+  );
+}
+
+export async function getAllMaterialReports(
+  params: Omit<MaterialReportParams, "page" | "pageSize">
+) {
+  return fetchAllPages<BlikkRawItem>(
+    (page, pageSize) =>
+      getMaterialReports({ ...params, page, pageSize }),
+    "material reports"
   );
 }
