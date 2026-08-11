@@ -23,6 +23,7 @@ import {
 } from "../../../lib/blikk/budget";
 import { getProjectCatalogView } from "../../../lib/blikk/project-catalog";
 import { inspectProjectFinanceSources } from "../../../lib/blikk/project-finance";
+import { getClassifiedPlanningSummariesForUser } from "../../../lib/blikk/planning";
 
 export const maxDuration = 300;
 
@@ -359,7 +360,7 @@ const handler = createMcpHandler(
       {
         title: "Get User Planning Summaries",
         description:
-          "Returns a Blikk user's planned hours grouped by project for an inclusive date range. Accepts a full name or a unique partial name, such as 'Richard'. Dates must use the YYYY-MM-DD format.",
+          "Returns a Blikk user's planned hours grouped by project for an inclusive date range. The complete fetched result is split into regularProjects and noindexProjects; NOINDEX projects remain visible but are kept separate from the ordinary planning result. Accepts a full name or a unique partial name, such as 'Richard'. Dates must use the YYYY-MM-DD format.",
         inputSchema: {
           user: z.string(),
           fromDate: z.string(),
@@ -390,11 +391,15 @@ const handler = createMcpHandler(
             ":arrow_right: Calling getAllPlanningSummariesForUser()"
           );
 
-          const summaries = await getAllPlanningSummariesForUser({
+          const fetchedSummaries = await getAllPlanningSummariesForUser({
             userId,
             fromDate,
             toDate,
           });
+
+          const summaries = await getClassifiedPlanningSummariesForUser(
+            fetchedSummaries
+          );
 
           console.log(
             ":white_check_mark: getAllPlanningSummariesForUser() completed"
