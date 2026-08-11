@@ -69,10 +69,14 @@ async function fetchPageWithRetry<T>(
       const response = await fetchPage(page, PAGE_SIZE);
       return validatePagedResponse<T>(response, resourceName, page);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message =
+        error instanceof Error ? error.message : String(error);
       const isRateLimited = message.includes("429");
 
-      if (!isRateLimited || attempt === MAX_RATE_LIMIT_RETRIES) {
+      if (
+        !isRateLimited ||
+        attempt === MAX_RATE_LIMIT_RETRIES
+      ) {
         throw error;
       }
 
@@ -80,19 +84,35 @@ async function fetchPageWithRetry<T>(
     }
   }
 
-  throw new Error(`Could not fetch ${resourceName} page ${page}.`);
+  throw new Error(
+    `Could not fetch ${resourceName} page ${page}.`
+  );
 }
 
 export async function fetchAllPages<T = unknown>(
-  fetchPage: (page: number, pageSize: number) => Promise<unknown>,
+  fetchPage: (
+    page: number,
+    pageSize: number
+  ) => Promise<unknown>,
   resourceName: string
 ): Promise<CompletePagedResponse<T>> {
-  const firstPage = await fetchPageWithRetry<T>(fetchPage, resourceName, 1);
-  const sourceTotalPages = Math.max(firstPage.totalPages, 1);
+  const firstPage = await fetchPageWithRetry<T>(
+    fetchPage,
+    resourceName,
+    1
+  );
+  const sourceTotalPages = Math.max(
+    firstPage.totalPages,
+    1
+  );
   const sourceTotalItemCount = firstPage.totalItemCount;
   const items = [...firstPage.items];
 
-  for (let page = 2; page <= sourceTotalPages; page += 1) {
+  for (
+    let page = 2;
+    page <= sourceTotalPages;
+    page += 1
+  ) {
     await wait(PAGE_DELAY_MS);
 
     const response = await fetchPageWithRetry<T>(
@@ -138,12 +158,15 @@ export async function getUsers(params?: {
 
 export async function getAllUsers() {
   return fetchAllPages(
-    (page, pageSize) => getUsers({ page, pageSize }),
+    (page, pageSize) =>
+      getUsers({ page, pageSize }),
     "users"
   );
 }
 
-export async function getUser(userId: number | string) {
+export async function getUser(
+  userId: number | string
+) {
   return blikkGet(`/v1/Admin/Users/${userId}`);
 }
 
@@ -162,7 +185,8 @@ export async function getProjects(params?: {
 
 export async function getAllProjects() {
   return fetchAllPages(
-    (page, pageSize) => getProjects({ page, pageSize }),
+    (page, pageSize) =>
+      getProjects({ page, pageSize }),
     "projects"
   );
 }
@@ -176,7 +200,9 @@ export type TimeReportParams = {
   pageSize?: number;
 };
 
-export async function getTimeReports(params: TimeReportParams) {
+export async function getTimeReports(
+  params: TimeReportParams
+) {
   return blikkGet(
     "/v1/Core/TimeReports",
     paged({
@@ -191,10 +217,18 @@ export async function getTimeReports(params: TimeReportParams) {
 }
 
 export async function getAllTimeReports(
-  params: Omit<TimeReportParams, "page" | "pageSize">
+  params: Omit<
+    TimeReportParams,
+    "page" | "pageSize"
+  >
 ) {
   return fetchAllPages(
-    (page, pageSize) => getTimeReports({ ...params, page, pageSize }),
+    (page, pageSize) =>
+      getTimeReports({
+        ...params,
+        page,
+        pageSize,
+      }),
     "time reports"
   );
 }
@@ -223,17 +257,28 @@ export async function getUserDayStatistics(
 }
 
 export async function getAllUserDayStatistics(
-  params: Omit<UserDayStatisticsParams, "page" | "pageSize">
+  params: Omit<
+    UserDayStatisticsParams,
+    "page" | "pageSize"
+  >
 ) {
   return fetchAllPages(
     (page, pageSize) =>
-      getUserDayStatistics({ ...params, page, pageSize }),
+      getUserDayStatistics({
+        ...params,
+        page,
+        pageSize,
+      }),
     "user day statistics"
   );
 }
 
-export async function getProjectTimeCalculation(projectId: string) {
-  return blikkGet(`/v1/Core/Projects/${projectId}/TimeCalculation`);
+export async function getProjectTimeCalculation(
+  projectId: string
+) {
+  return blikkGet(
+    `/v1/Core/Projects/${projectId}/TimeCalculation`
+  );
 }
 
 export type ResourcePlanningUsersParams = {
@@ -255,18 +300,27 @@ export async function getUsersWithResourcePlanning(
       toDate: params.toDate,
       page: params.page,
       pageSize: params.pageSize,
-      excludeDeleted: params.excludeDeleted ?? true,
-      excludeRestricted: params.excludeRestricted ?? true,
+      excludeDeleted:
+        params.excludeDeleted ?? true,
+      excludeRestricted:
+        params.excludeRestricted ?? true,
     })
   );
 }
 
 export async function getAllUsersWithResourcePlanning(
-  params: Omit<ResourcePlanningUsersParams, "page" | "pageSize">
+  params: Omit<
+    ResourcePlanningUsersParams,
+    "page" | "pageSize"
+  >
 ) {
   return fetchAllPages(
     (page, pageSize) =>
-      getUsersWithResourcePlanning({ ...params, page, pageSize }),
+      getUsersWithResourcePlanning({
+        ...params,
+        page,
+        pageSize,
+      }),
     "users with resource planning"
   );
 }
@@ -285,7 +339,7 @@ export type PlanningSummariesParams = {
 export async function getPlanningSummariesForUser(
   params: PlanningSummariesParams
 ) {
-  return blikkGet(
+  return blikkGet<PagedResponse<BlikkRawItem>>(
     "/v1/Core/Planning/GetPlanningSummaries/Projects",
     paged({
       userId: params.userId,
@@ -293,19 +347,29 @@ export async function getPlanningSummariesForUser(
       toDate: params.toDate,
       page: params.page,
       pageSize: params.pageSize,
-      excludeProjects: params.excludeProjects ?? false,
-      excludeAbsence: params.excludeAbsence ?? false,
-      excludeInternal: params.excludeInternal ?? false,
+      excludeProjects:
+        params.excludeProjects ?? false,
+      excludeAbsence:
+        params.excludeAbsence ?? false,
+      excludeInternal:
+        params.excludeInternal ?? false,
     })
   );
 }
 
 export async function getAllPlanningSummariesForUser(
-  params: Omit<PlanningSummariesParams, "page" | "pageSize">
+  params: Omit<
+    PlanningSummariesParams,
+    "page" | "pageSize"
+  >
 ) {
-  return fetchAllPages(
+  return fetchAllPages<BlikkRawItem>(
     (page, pageSize) =>
-      getPlanningSummariesForUser({ ...params, page, pageSize }),
+      getPlanningSummariesForUser({
+        ...params,
+        page,
+        pageSize,
+      }),
     "planning summaries"
   );
 }
@@ -327,18 +391,27 @@ export async function getSupplierInvoices(
       page: params.page,
       pageSize: params.pageSize,
       "filter.projectId": params.projectId,
-      "filter.invoiceDateFrom": params.invoiceDateFrom,
-      "filter.invoiceDateTo": params.invoiceDateTo,
+      "filter.invoiceDateFrom":
+        params.invoiceDateFrom,
+      "filter.invoiceDateTo":
+        params.invoiceDateTo,
     })
   );
 }
 
 export async function getAllSupplierInvoices(
-  params: Omit<SupplierInvoiceParams, "page" | "pageSize">
+  params: Omit<
+    SupplierInvoiceParams,
+    "page" | "pageSize"
+  >
 ) {
   return fetchAllPages<BlikkRawItem>(
     (page, pageSize) =>
-      getSupplierInvoices({ ...params, page, pageSize }),
+      getSupplierInvoices({
+        ...params,
+        page,
+        pageSize,
+      }),
     "supplier invoices"
   );
 }
@@ -349,7 +422,9 @@ export type PaymentPlanParams = {
   pageSize?: number;
 };
 
-export async function getPaymentPlans(params: PaymentPlanParams) {
+export async function getPaymentPlans(
+  params: PaymentPlanParams
+) {
   return blikkGet<PagedResponse<BlikkRawItem>>(
     "/v1/Core/Paymentplans",
     paged({
@@ -361,10 +436,18 @@ export async function getPaymentPlans(params: PaymentPlanParams) {
 }
 
 export async function getAllPaymentPlans(
-  params: Omit<PaymentPlanParams, "page" | "pageSize">
+  params: Omit<
+    PaymentPlanParams,
+    "page" | "pageSize"
+  >
 ) {
   return fetchAllPages<BlikkRawItem>(
-    (page, pageSize) => getPaymentPlans({ ...params, page, pageSize }),
+    (page, pageSize) =>
+      getPaymentPlans({
+        ...params,
+        page,
+        pageSize,
+      }),
     "payment plans"
   );
 }
@@ -389,11 +472,18 @@ export async function getMaterialReports(
 }
 
 export async function getAllMaterialReports(
-  params: Omit<MaterialReportParams, "page" | "pageSize">
+  params: Omit<
+    MaterialReportParams,
+    "page" | "pageSize"
+  >
 ) {
   return fetchAllPages<BlikkRawItem>(
     (page, pageSize) =>
-      getMaterialReports({ ...params, page, pageSize }),
+      getMaterialReports({
+        ...params,
+        page,
+        pageSize,
+      }),
     "material reports"
   );
 }
