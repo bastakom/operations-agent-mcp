@@ -37,6 +37,7 @@ import { toSafeContact } from "../../../lib/blikk/contacts";
 import {
   analyzeCustomerOpportunity,
   getDormantCustomerOpportunities,
+  getDormantCustomerIndexStatus,
   refreshDormantCustomerIndex,
 } from "../../../lib/blikk/dormant-customers";
 
@@ -1056,6 +1057,34 @@ const handler = createMcpHandler(
               text: error instanceof Error
                 ? `Blikk error: ${error.message}`
                 : "Unknown Blikk error",
+            }],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "get_dormant_customer_index_status",
+      {
+        title: "Get Dormant Customer Index Status",
+        description:
+          "Reads the current private Blob build state without starting or changing an index build. Returns phase, processed and total records, percentage, failures, timestamps and whether the index is complete.",
+        inputSchema: {},
+      },
+      async () => {
+        try {
+          const result = await getDormantCustomerIndexStatus();
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: "text",
+              text: error instanceof Error
+                ? `Blob index error: ${error.message}`
+                : "Unknown Blob index error",
             }],
             isError: true,
           };
