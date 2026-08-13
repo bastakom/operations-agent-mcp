@@ -9,6 +9,11 @@ import {
   getProjectTimeCalculation,
   getAllUsersWithResourcePlanning,
   getAllPlanningSummariesForUser,
+  getAllOpportunityStatuses,
+  getAllOpportunityTags,
+  getOpportunity,
+  getAllContacts,
+  getContact,
 } from "../../../lib/blikk/endpoints";
 import {
   resolvePlanningUserId,
@@ -24,8 +29,22 @@ import {
 import { getProjectCatalogView } from "../../../lib/blikk/project-catalog";
 import { inspectProjectFinanceSources } from "../../../lib/blikk/project-finance";
 import { getClassifiedPlanningSummariesForUser } from "../../../lib/blikk/planning";
+import {
+  getOpportunityPipeline,
+  toSafeOpportunity,
+} from "../../../lib/blikk/opportunities";
+import { toSafeContact } from "../../../lib/blikk/contacts";
+import { getDormantCustomerOpportunities } from "../../../lib/blikk/dormant-customers";
 
 export const maxDuration = 300;
+
+const blikkDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD.");
+
+const commaSeparatedIdsSchema = z
+  .string()
+  .regex(/^\d+(,\d+)*$/, "Use comma-separated numeric IDs.");
 
 type BlikkUserMetadata =
   | string
@@ -929,6 +948,230 @@ const handler = createMcpHandler(
                     : "Unknown Blikk error",
               },
             ],
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "search_contacts",
+      {
+        title: "Search Contacts",
+        description:
+          "Searches Blikk contacts by name or customer number and returns privacy-conscious contact cards. Sensitive identity numbers and full addresses are never returned.",
+        inputSchema: {
+          query: z.string().trim().min(2),
+          contactType: z.enum(["person", "company"]).optional(),
+          relation: z
+            .enum(["customer", "supplier", "wholesale", "retail", "subcontractor", "partner"])
+            .optional(),
+        },
+      },
+      async ({ query, contactType, relation }) => {
+        try {
+          const contacts = await getAllContacts({
+            query,
+            contactType,
+            relations: relation,
+          });
+          const result = contacts.items.map(toSafeContact);
+
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: "text",
+              text: error instanceof Error
+                ? `Blikk error: ${error.message}`
+                : "Unknown Blikk error",
+            }],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "get_contact",
+      {
+        title: "Get Contact",
+        description:
+          "Returns a privacy-conscious Blikk contact card by numeric ID. Sensitive identity numbers and full addresses are excluded.",
+        inputSchema: {
+          contactId: z.string().regex(/^\d+$/, "Use a numeric contact ID."),
+        },
+      },
+      async ({ contactId }) => {
+        try {
+          const result = toSafeContact(await getContact(contactId));
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: "text",
+              text: error instanceof Error
+                ? `Blikk error: ${error.message}`
+                : "Unknown Blikk error",
+            }],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "get_dormant_customer_opportunities",
+      {
+        title: "Get Dormant Customer Opportunities",
+        description:
+          "Finds completed Blikk projects whose end date is within the requested number of years and that have no time reports across any date. Groups them by customer, enriches them with safe contact details and opportunity history, and returns transparent meeting recommendations. The score is a sales signal, not a factual prediction.",
+        inputSchema: {
+          years: z.number().int().min(1).max(10).optional(),
+        },
+      },
+      async ({ years }) => {
+        try {
+          const result = await getDormantCustomerOpportunities(years ?? 3);
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: "text",
+              text: error instanceof Error
+                ? `Blikk error: ${error.message}`
+                : "Unknown Blikk error",
+            }],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "get_opportunities",
+      {
+        title: "Get Opportunities",
+        description:
+          "Returns a complete, privacy-conscious Blikk opportunity pipeline. Supports Blikk's read-only state, status, tag, offer and date filters. Includes totals grouped by state, status and responsible user, plus the matching opportunities. Dates use YYYY-MM-DD; statusIds and tagIds are comma-separated numeric IDs.",
+        inputSchema: {
+          state: z.enum(["open", "won", "lost"]).optional(),
+          statusIds: commaSeparatedIdsSchema.optional(),
+          tagIds: commaSeparatedIdsSchema.optional(),
+          hasOffers: z.boolean().optional(),
+          createdFrom: blikkDateSchema.optional(),
+          createdTo: blikkDateSchema.optional(),
+          updatedFrom: blikkDateSchema.optional(),
+          updatedTo: blikkDateSchema.optional(),
+          closedFrom: blikkDateSchema.optional(),
+          closedTo: blikkDateSchema.optional(),
+          estimatedClosingFrom: blikkDateSchema.optional(),
+          estimatedClosingTo: blikkDateSchema.optional(),
+          sortBy: z.enum(["title", "createdDate", "updatedDate"]).optional(),
+          sortOrder: z.enum(["ascending", "descending"]).optional(),
+        },
+      },
+      async (input) => {
+        try {
+          const result = await getOpportunityPipeline({
+            opportunityState: input.state,
+            opportunityStatusIds: input.statusIds,
+            opportunityTagIds: input.tagIds,
+            hasOffers: input.hasOffers,
+            createdDateFrom: input.createdFrom,
+            createdDateTo: input.createdTo,
+            updatedDateFrom: input.updatedFrom,
+            updatedDateTo: input.updatedTo,
+            closedDateFrom: input.closedFrom,
+            closedDateTo: input.closedTo,
+            estimatedClosingDateFrom: input.estimatedClosingFrom,
+            estimatedClosingDateTo: input.estimatedClosingTo,
+            sortBy: input.sortBy ?? "updatedDate",
+            sortOrder: input.sortOrder ?? "descending",
+          });
+
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: "text",
+              text: error instanceof Error
+                ? `Blikk error: ${error.message}`
+                : "Unknown Blikk error",
+            }],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "get_opportunity",
+      {
+        title: "Get Opportunity",
+        description:
+          "Returns a read-only, privacy-conscious detailed Blikk opportunity, including description, probability, customer, responsible user, status, tags and any linked project.",
+        inputSchema: {
+          opportunityId: z.string().regex(/^\d+$/, "Use a numeric opportunity ID."),
+        },
+      },
+      async ({ opportunityId }) => {
+        try {
+          const opportunity = await getOpportunity(opportunityId);
+          const result = toSafeOpportunity(opportunity);
+
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: "text",
+              text: error instanceof Error
+                ? `Blikk error: ${error.message}`
+                : "Unknown Blikk error",
+            }],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "get_opportunity_metadata",
+      {
+        title: "Get Opportunity Metadata",
+        description:
+          "Lists all Blikk opportunity statuses and tags so their IDs can be used with get_opportunities filters.",
+        inputSchema: {},
+      },
+      async () => {
+        try {
+          const statuses = await getAllOpportunityStatuses();
+          const tags = await getAllOpportunityTags();
+
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({ statuses: statuses.items, tags: tags.items }, null, 2),
+            }],
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: "text",
+              text: error instanceof Error
+                ? `Blikk error: ${error.message}`
+                : "Unknown Blikk error",
+            }],
+            isError: true,
           };
         }
       }
