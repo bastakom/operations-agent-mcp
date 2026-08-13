@@ -210,6 +210,7 @@ export async function refreshDormantCustomerIndex(options: {
   years?: number;
   batchSize?: number;
   reset?: boolean;
+  autoResetAfterHours?: number;
 }) {
   const years = options.years ?? 3;
   const batchSize = Math.min(Math.max(options.batchSize ?? 18, 1), 30);
@@ -219,6 +220,13 @@ export async function refreshDormantCustomerIndex(options: {
   }
 
   if (state.phase === "complete") {
+    const maxAge = options.autoResetAfterHours;
+    const ageHours =
+      (Date.now() - new Date(state.updatedAt).getTime()) / 3_600_000;
+
+    if (typeof maxAge === "number" && ageHours >= maxAge) {
+      state = await createState(years);
+    } else {
     return {
       buildId: state.buildId,
       phase: state.phase,
@@ -231,6 +239,7 @@ export async function refreshDormantCustomerIndex(options: {
       verificationFailures: state.verificationFailures.length,
       nextAction: "The index is ready. Use get_dormant_customer_opportunities.",
     };
+    }
   }
 
   if (state.phase === "time_reports") {
