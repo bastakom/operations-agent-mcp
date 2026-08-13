@@ -34,7 +34,11 @@ import {
   toSafeOpportunity,
 } from "../../../lib/blikk/opportunities";
 import { toSafeContact } from "../../../lib/blikk/contacts";
-import { getDormantCustomerOpportunities } from "../../../lib/blikk/dormant-customers";
+import {
+  analyzeCustomerOpportunity,
+  getDormantCustomerOpportunities,
+  refreshDormantCustomerIndex,
+} from "../../../lib/blikk/dormant-customers";
 
 export const maxDuration = 300;
 
@@ -1024,18 +1028,85 @@ const handler = createMcpHandler(
     );
 
     server.registerTool(
+      "refresh_dormant_customer_index",
+      {
+        title: "Refresh Dormant Customer Index",
+        description:
+          "Builds the private dormant-customer index incrementally to avoid timeouts. Call repeatedly with the same years value until complete is true. Use reset only to intentionally start a new build. Do not run refresh calls in parallel.",
+        inputSchema: {
+          years: z.number().int().min(1).max(10).optional(),
+          batchSize: z.number().int().min(1).max(30).optional(),
+          reset: z.boolean().optional(),
+        },
+      },
+      async ({ years, batchSize, reset }) => {
+        try {
+          const result = await refreshDormantCustomerIndex({
+            years,
+            batchSize,
+            reset,
+          });
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: "text",
+              text: error instanceof Error
+                ? `Blikk error: ${error.message}`
+                : "Unknown Blikk error",
+            }],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    server.registerTool(
       "get_dormant_customer_opportunities",
       {
         title: "Get Dormant Customer Opportunities",
         description:
-          "Finds completed Blikk projects whose end date is within the requested number of years and that have no time reports across any date. Groups them by customer, enriches them with safe contact details and opportunity history, and returns transparent meeting recommendations. The score is a sales signal, not a factual prediction.",
+          "Reads the latest completed private customer index without scanning Blikk. Optionally filters by customer name and limits the number of recommendations. Recommendation scores are sales signals, not factual predictions.",
         inputSchema: {
-          years: z.number().int().min(1).max(10).optional(),
+          customer: z.string().trim().min(2).optional(),
+          limit: z.number().int().min(1).max(100).optional(),
         },
       },
-      async ({ years }) => {
+      async ({ customer, limit }) => {
         try {
-          const result = await getDormantCustomerOpportunities(years ?? 3);
+          const result = await getDormantCustomerOpportunities({ customer, limit });
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: "text",
+              text: error instanceof Error
+                ? `Blikk error: ${error.message}`
+                : "Unknown Blikk error",
+            }],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "analyze_customer_opportunity",
+      {
+        title: "Analyze Customer Opportunity",
+        description:
+          "Quickly analyzes one uniquely matching project and its customer without rebuilding the global index. Verifies project completion and whether any time reports exist, then includes safe contact details and opportunity history.",
+        inputSchema: {
+          project: z.string().trim().min(2),
+        },
+      },
+      async ({ project }) => {
+        try {
+          const result = await analyzeCustomerOpportunity(project);
           return {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
           };
