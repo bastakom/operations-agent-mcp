@@ -14,35 +14,49 @@ const STATE_PATH = "dormant-customers/build-state.json";
 const INDEX_PATH = "dormant-customers/index.json";
 const REQUESTS_PER_BATCH = 3;
 const REQUEST_DELAY_MS = 1100;
+const INDEX_VERSION = 3;
 
 type BuildPhase = "time_reports" | "contacts" | "complete";
-
+type CustomerGroup = {
+  customerId: string;
+  customerName: string;
+  projects: ProjectCatalogItem[];
+};
+type CustomerContacts = {
+  companyContact: SafeContact | null;
+  meetingContact: SafeContact | null;
+  meetingContactSource: "primary_contact_person" | "contact_person" | "none";
+};
 type BuildState = {
-  version: 2;
+  version: 3;
   buildId: string;
   phase: BuildPhase;
   startedAt: string;
   updatedAt: string;
   years: number;
   cutoffDate: string;
+  upperDate: string;
   candidates: ProjectCatalogItem[];
+  futureDatedCompletedProjects: ProjectCatalogItem[];
+  excludedProjects: ProjectCatalogItem[];
   nextProjectIndex: number;
   dormantProjects: ProjectCatalogItem[];
   verificationFailures: Array<{ projectId: string; project: string; error: string }>;
   opportunities: BlikkRawItem[];
-  customers: Array<{ customerId: string; customerName: string; projects: ProjectCatalogItem[] }>;
+  customers: CustomerGroup[];
   nextCustomerIndex: number;
-  contacts: Record<string, SafeContact | null>;
+  contacts: Record<string, CustomerContacts>;
   warnings: string[];
 };
 
 export type DormantCustomerIndex = {
-  version: 2;
+  version: 3;
   generatedAt: string;
   buildId: string;
   methodology: {
     years: number;
     cutoffDate: string;
+    upperDate: string;
     dateBasis: "project.endDate";
     timeBasis: "no time reports found for the project across all dates";
     scoreIsRecommendationNotFact: true;
@@ -52,6 +66,12 @@ export type DormantCustomerIndex = {
     completedProjectsWithNoTime: number;
     recommendedCustomers: number;
     verificationFailures: number;
+    futureDatedCompletedProjects: number;
+    excludedProjects: number;
+  };
+  dataQuality: {
+    futureDatedCompletedProjects: Array<Record<string, unknown>>;
+    excludedProjects: Array<Record<string, unknown>>;
   };
   recommendations: Array<Record<string, unknown>>;
   warnings: string[];
@@ -85,6 +105,58 @@ function subtractYears(date: Date, years: number) {
   return result.toISOString().slice(0, 10);
 }
 
+function normalize(value: string) {
+  return value.trim().toLocaleLowerCase("sv");
+}
+
+function configuredSet(name: string) {
+  return new Set(
+    (process.env[name] ?? "")
+      .split(",")
+      .map(normalize)
+      .filter(Boolean)
+  );
+}
+
+function isExcludedProject(project: ProjectCatalogItem) {
+  const excludedIds = configuredSet("DORMANT_CUSTOMER_EXCLUDED_IDS");
+  const excludedNames = configuredSet("DORMANT_CUSTOMER_EXCLUDED_NAMES");
+  const hasNoindex = project.tags.some((tag) => normalize(tag.name) === "noindex");
+  return (
+    hasNoindex ||
+    (project.customerId !== null && excludedIds.has(normalize(project.customerId))) ||
+    (project.customerName !== null && excludedNames.has(normalize(project.customerName)))
+  );
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function text(value: unknown): string | null {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const result = String(value).trim();
+  return result || null;
+}
+
+function selectContactPersonId(companyDetail: BlikkRawItem) {
+  if (!Array.isArray(companyDetail.contactPersons)) return null;
+  const contacts = companyDetail.contactPersons
+    .map(record)
+    .filter((item): item is Record<string, unknown> => item !== null);
+  const selected = contacts.find((item) => item.isPrimary === true) ?? contacts[0];
+  return selected
+    ? {
+        id: text(selected.id),
+        source: selected.isPrimary === true
+          ? ("primary_contact_person" as const)
+          : ("contact_person" as const),
+      }
+    : null;
+}
+
 async function readJson<T>(pathname: string): Promise<T | null> {
   const result = await get(pathname, { access: "private" });
   if (!result || result.statusCode !== 200) return null;
@@ -103,21 +175,39 @@ async function writeJson(pathname: string, value: unknown) {
 async function createState(years: number): Promise<BuildState> {
   const now = new Date();
   const cutoffDate = subtractYears(now, years);
+  const upperDate = now.toISOString().slice(0, 10);
   const projects = await getProjectCatalog();
-  const candidates = projects.filter((project) => {
+  const futureDatedCompletedProjects: ProjectCatalogItem[] = [];
+  const excludedProjects: ProjectCatalogItem[] = [];
+  const candidates: ProjectCatalogItem[] = [];
+
+  for (const project of projects) {
+    if (project.isCompleted !== true) continue;
     const endDate = dateOnly(project.endDate);
-    return project.isCompleted === true && endDate !== null && endDate >= cutoffDate;
-  });
+    if (!endDate || endDate < cutoffDate) continue;
+    if (endDate > upperDate) {
+      futureDatedCompletedProjects.push(project);
+      continue;
+    }
+    if (isExcludedProject(project)) {
+      excludedProjects.push(project);
+      continue;
+    }
+    candidates.push(project);
+  }
 
   return {
-    version: 2,
+    version: 3,
     buildId: crypto.randomUUID(),
     phase: "time_reports",
     startedAt: now.toISOString(),
     updatedAt: now.toISOString(),
     years,
     cutoffDate,
+    upperDate,
     candidates,
+    futureDatedCompletedProjects,
+    excludedProjects,
     nextProjectIndex: 0,
     dormantProjects: [],
     verificationFailures: [],
@@ -125,12 +215,14 @@ async function createState(years: number): Promise<BuildState> {
     customers: [],
     nextCustomerIndex: 0,
     contacts: {},
-    warnings: [],
+    warnings: futureDatedCompletedProjects.length > 0
+      ? [`${futureDatedCompletedProjects.length} completed project(s) had a future end date and were excluded.`]
+      : [],
   };
 }
 
 function groupCustomers(projects: ProjectCatalogItem[]) {
-  const groups = new Map<string, { customerId: string; customerName: string; projects: ProjectCatalogItem[] }>();
+  const groups = new Map<string, CustomerGroup>();
   for (const project of projects) {
     if (!project.customerId || !project.customerName) continue;
     const current = groups.get(project.customerId) ?? {
@@ -145,13 +237,29 @@ function groupCustomers(projects: ProjectCatalogItem[]) {
 }
 
 function score(projectCount: number, latestEndDate: string, open: number, lost: number, contact: SafeContact | null) {
-  const days = Math.max(0, Math.floor((Date.now() - new Date(`${latestEndDate}T00:00:00Z`).getTime()) / 86_400_000));
+  const days = Math.max(0, Math.floor(
+    (Date.now() - new Date(`${latestEndDate}T00:00:00Z`).getTime()) / 86_400_000
+  ));
   return Math.min(
     100,
     25 + Math.min(30, projectCount * 10) + Math.max(0, 20 - Math.floor(days / 55)) +
       (open === 0 ? 15 : 0) + (lost > 0 ? 5 : 0) +
       (contact?.email || contact?.phoneNumber || contact?.cellPhoneNumber ? 5 : 0)
   );
+}
+
+function compactProject(project: ProjectCatalogItem) {
+  return {
+    id: project.id,
+    orderNumber: project.orderNumber,
+    title: project.title,
+    status: project.status,
+    startDate: project.startDate,
+    endDate: project.endDate,
+    customerId: project.customerId,
+    customerName: project.customerName,
+    projectManagerName: project.projectManagerName,
+  };
 }
 
 function buildIndex(state: BuildState): DormantCustomerIndex {
@@ -166,31 +274,48 @@ function buildIndex(state: BuildState): DormantCustomerIndex {
       .filter((date): date is string => date !== null)
       .sort()
       .at(-1) as string;
-    const contact = state.contacts[customer.customerId] ?? null;
+    const contacts = state.contacts[customer.customerId] ?? {
+      companyContact: null,
+      meetingContact: null,
+      meetingContactSource: "none" as const,
+    };
 
     return {
-      rankScore: score(customer.projects.length, latestEndDate, open.length, lost.length, contact),
+      rankScore: score(
+        customer.projects.length,
+        latestEndDate,
+        open.length,
+        lost.length,
+        contacts.meetingContact
+      ),
       customerId: customer.customerId,
       customerName: customer.customerName,
-      contact,
+      meetingContact: contacts.meetingContact,
+      meetingContactSource: contacts.meetingContactSource,
+      companyContact: contacts.companyContact,
+      invoiceEmail: contacts.companyContact?.invoiceEmail ?? null,
+      contactGuidance: contacts.meetingContact
+        ? "Use meetingContact for outreach. invoiceEmail is informational only."
+        : "No person contact was resolved. Coordinate outreach through the internal responsible user; do not use invoiceEmail for meeting invitations.",
       reasons: [
         `${customer.projects.length} completed project(s) with no reported time`,
         `latest project ended ${latestEndDate}`,
         open.length === 0 ? "no open opportunity exists" : `${open.length} open opportunity/opportunities already exist`,
         lost.length > 0 ? `${lost.length} lost opportunity/opportunities may be worth revisiting` : null,
       ].filter(Boolean),
-      projects: customer.projects,
+      projects: customer.projects.map(compactProject),
       opportunityHistory: { open, won, lost },
     };
   }).sort((a, b) => b.rankScore - a.rankScore);
 
   return {
-    version: 2,
+    version: 3,
     generatedAt: new Date().toISOString(),
     buildId: state.buildId,
     methodology: {
       years: state.years,
       cutoffDate: state.cutoffDate,
+      upperDate: state.upperDate,
       dateBasis: "project.endDate",
       timeBasis: "no time reports found for the project across all dates",
       scoreIsRecommendationNotFact: true,
@@ -200,6 +325,12 @@ function buildIndex(state: BuildState): DormantCustomerIndex {
       completedProjectsWithNoTime: state.dormantProjects.length,
       recommendedCustomers: recommendations.length,
       verificationFailures: state.verificationFailures.length,
+      futureDatedCompletedProjects: state.futureDatedCompletedProjects.length,
+      excludedProjects: state.excludedProjects.length,
+    },
+    dataQuality: {
+      futureDatedCompletedProjects: state.futureDatedCompletedProjects.map(compactProject),
+      excludedProjects: state.excludedProjects.map(compactProject),
     },
     recommendations,
     warnings: state.warnings,
@@ -215,30 +346,24 @@ export async function refreshDormantCustomerIndex(options: {
   const years = options.years ?? 3;
   const batchSize = Math.min(Math.max(options.batchSize ?? 18, 1), 30);
   let state = options.reset ? null : await readJson<BuildState>(STATE_PATH);
-  if (!state || state.version !== 2 || state.years !== years) {
+  if (!state || state.version !== INDEX_VERSION || state.years !== years) {
     state = await createState(years);
   }
 
   if (state.phase === "complete") {
     const maxAge = options.autoResetAfterHours;
-    const ageHours =
-      (Date.now() - new Date(state.updatedAt).getTime()) / 3_600_000;
-
+    const ageHours = (Date.now() - new Date(state.updatedAt).getTime()) / 3_600_000;
     if (typeof maxAge === "number" && ageHours >= maxAge) {
       state = await createState(years);
     } else {
-    return {
-      buildId: state.buildId,
-      phase: state.phase,
-      complete: true,
-      progress: {
-        processed: state.customers.length,
-        total: state.customers.length,
-        unit: "customers",
-      },
-      verificationFailures: state.verificationFailures.length,
-      nextAction: "The index is ready. Use get_dormant_customer_opportunities.",
-    };
+      return {
+        buildId: state.buildId,
+        phase: state.phase,
+        complete: true,
+        progress: { processed: state.customers.length, total: state.customers.length, unit: "customers" },
+        verificationFailures: state.verificationFailures.length,
+        nextAction: "The index is ready. Use get_dormant_customer_opportunities.",
+      };
     }
   }
 
@@ -262,35 +387,55 @@ export async function refreshDormantCustomerIndex(options: {
     state.nextProjectIndex += batch.length;
 
     if (state.nextProjectIndex >= state.candidates.length) {
-      state.opportunities = (await getAllOpportunities({ sortBy: "updatedDate", sortOrder: "descending" })).items;
+      state.opportunities = (await getAllOpportunities({
+        sortBy: "updatedDate",
+        sortOrder: "descending",
+      })).items;
       state.customers = groupCustomers(state.dormantProjects);
       state.phase = "contacts";
     }
   } else if (state.phase === "contacts") {
     const batch = state.customers.slice(state.nextCustomerIndex, state.nextCustomerIndex + batchSize);
-    const contacts = await mapRateLimited(batch, async (customer) =>
-      toSafeContact(await getContact(customer.customerId))
-    );
+    const contacts = await mapRateLimited(batch, async (customer): Promise<CustomerContacts> => {
+      const companyDetail = await getContact(customer.customerId);
+      const companyContact = toSafeContact(companyDetail);
+      const person = selectContactPersonId(companyDetail);
+      if (!person?.id) {
+        return { companyContact, meetingContact: null, meetingContactSource: "none" };
+      }
+      await wait(REQUEST_DELAY_MS);
+      const meetingContact = toSafeContact(await getContact(person.id));
+      return {
+        companyContact,
+        meetingContact,
+        meetingContactSource: person.source,
+      };
+    });
     contacts.forEach((result, index) => {
       const customer = batch[index];
-      if (result.status === "fulfilled") state!.contacts[customer.customerId] = result.value;
-      else {
-        state!.contacts[customer.customerId] = null;
-        state!.warnings.push(`Could not fetch contact for '${customer.customerName}': ${String(result.reason)}`);
+      if (result.status === "fulfilled") {
+        state!.contacts[customer.customerId] = result.value;
+      } else {
+        state!.contacts[customer.customerId] = {
+          companyContact: null,
+          meetingContact: null,
+          meetingContactSource: "none",
+        };
+        state!.warnings.push(
+          `Could not fetch contacts for '${customer.customerName}': ${String(result.reason)}`
+        );
       }
     });
     state.nextCustomerIndex += batch.length;
 
     if (state.nextCustomerIndex >= state.customers.length) {
       state.phase = "complete";
-      const index = buildIndex(state);
-      await writeJson(INDEX_PATH, index);
+      await writeJson(INDEX_PATH, buildIndex(state));
     }
   }
 
   state.updatedAt = new Date().toISOString();
   await writeJson(STATE_PATH, state);
-
   return {
     buildId: state.buildId,
     phase: state.phase,
@@ -299,9 +444,11 @@ export async function refreshDormantCustomerIndex(options: {
       ? { processed: state.nextProjectIndex, total: state.candidates.length, unit: "projects" }
       : { processed: state.nextCustomerIndex, total: state.customers.length, unit: "customers" },
     verificationFailures: state.verificationFailures.length,
+    futureDatedCompletedProjects: state.futureDatedCompletedProjects.length,
+    excludedProjects: state.excludedProjects.length,
     nextAction: state.phase === "complete"
       ? "The index is ready. Use get_dormant_customer_opportunities."
-      : "Call refresh_dormant_customer_index again with the same years value.",
+      : "Wait for the next cron run or call refresh_dormant_customer_index again.",
   };
 }
 
@@ -312,7 +459,7 @@ export async function getDormantCustomerOpportunities(options: {
   const normalizedOptions = typeof options === "number" ? {} : options;
   const index = await readJson<DormantCustomerIndex>(INDEX_PATH);
   if (!index) {
-    throw new Error("No completed dormant customer index exists. Run refresh_dormant_customer_index until complete is true.");
+    throw new Error("No completed dormant customer index exists yet.");
   }
   const query = normalizedOptions.customer?.trim().toLocaleLowerCase("sv");
   const recommendations = index.recommendations
@@ -324,7 +471,6 @@ export async function getDormantCustomerOpportunities(options: {
 export async function getDormantCustomerIndexStatus() {
   const state = await readJson<BuildState>(STATE_PATH);
   const index = await readJson<DormantCustomerIndex>(INDEX_PATH);
-
   if (!state) {
     return {
       exists: false,
@@ -334,27 +480,20 @@ export async function getDormantCustomerIndexStatus() {
       percentComplete: 0,
       lastUpdatedAt: null,
       latestCompletedIndexAt: index?.generatedAt ?? null,
-      message:
-        "No build state exists yet. Wait for the cron job or run refresh_dormant_customer_index once.",
+      message: "No build state exists yet. Wait for the cron job.",
     };
   }
-
   const isProjectPhase = state.phase === "time_reports";
-  const processed = isProjectPhase
-    ? state.nextProjectIndex
-    : state.nextCustomerIndex;
-  const total = isProjectPhase
-    ? state.candidates.length
-    : state.customers.length;
-  const percentComplete =
-    state.phase === "complete"
-      ? 100
-      : total === 0
-        ? 0
-        : Math.min(99.9, Math.round((processed / total) * 1000) / 10);
-
+  const processed = isProjectPhase ? state.nextProjectIndex : state.nextCustomerIndex;
+  const total = isProjectPhase ? state.candidates.length : state.customers.length;
+  const percentComplete = state.phase === "complete"
+    ? 100
+    : total === 0
+      ? 0
+      : Math.min(99.9, Math.round((processed / total) * 1000) / 10);
   return {
     exists: true,
+    version: state.version,
     buildId: state.buildId,
     phase: state.phase,
     complete: state.phase === "complete",
@@ -369,11 +508,16 @@ export async function getDormantCustomerIndexStatus() {
     lastUpdatedAt: state.updatedAt,
     years: state.years,
     cutoffDate: state.cutoffDate,
+    upperDate: state.upperDate,
     dormantProjectsFound: state.dormantProjects.length,
     verificationFailures: state.verificationFailures.length,
+    futureDatedCompletedProjects: state.futureDatedCompletedProjects.length,
+    excludedProjects: state.excludedProjects.length,
     warningCount: state.warnings.length,
     latestCompletedIndexAt: index?.generatedAt ?? null,
     latestCompletedIndexBuildId: index?.buildId ?? null,
+    servingPreviousCompletedIndex:
+      index !== null && index.buildId !== state.buildId && state.phase !== "complete",
   };
 }
 
@@ -392,8 +536,11 @@ export async function analyzeCustomerOpportunity(projectQuery: string) {
   const opportunities = (await getAllOpportunities()).items
     .map(toSafeOpportunity)
     .filter((item) => item.customer?.id === project.customerId);
-  const contact = project.customerId
-    ? toSafeContact(await getContact(project.customerId))
+  const companyDetail = project.customerId ? await getContact(project.customerId) : null;
+  const companyContact = companyDetail ? toSafeContact(companyDetail) : null;
+  const person = companyDetail ? selectContactPersonId(companyDetail) : null;
+  const meetingContact = person?.id
+    ? toSafeContact(await getContact(person.id))
     : null;
 
   return {
@@ -403,9 +550,21 @@ export async function analyzeCustomerOpportunity(projectQuery: string) {
       endDate: project.endDate,
       hasReportedTime: reports.totalItemCount > 0,
       timeReportCount: reports.totalItemCount,
-      qualifiesAsDormantProject: project.isCompleted === true && reports.totalItemCount === 0,
+      qualifiesAsDormantProject:
+        project.isCompleted === true &&
+        reports.totalItemCount === 0 &&
+        dateOnly(project.endDate) !== null &&
+        (dateOnly(project.endDate) as string) <= new Date().toISOString().slice(0, 10),
     },
-    customer: { id: project.customerId, name: project.customerName, contact },
+    customer: {
+      id: project.customerId,
+      name: project.customerName,
+      meetingContact,
+      companyContact,
+      contactGuidance: meetingContact
+        ? "Use meetingContact for outreach."
+        : "No person contact was resolved; do not use invoiceEmail for meeting invitations.",
+    },
     opportunityHistory: {
       open: opportunities.filter((item) => item.state === "open"),
       won: opportunities.filter((item) => item.state === "won"),
