@@ -487,3 +487,116 @@ export async function getAllMaterialReports(
     "material reports"
   );
 }
+
+export type OpportunityState = "open" | "won" | "lost";
+
+export type OpportunityParams = {
+  createdDateFrom?: string;
+  createdDateTo?: string;
+  updatedDateFrom?: string;
+  updatedDateTo?: string;
+  closedDateFrom?: string;
+  closedDateTo?: string;
+  estimatedClosingDateFrom?: string;
+  estimatedClosingDateTo?: string;
+  hasOffers?: boolean;
+  opportunityStatusIds?: string;
+  opportunityTagIds?: string;
+  opportunityState?: OpportunityState;
+  sortBy?: "title" | "createdDate" | "updatedDate";
+  sortOrder?: "ascending" | "descending";
+  page?: number;
+  pageSize?: number;
+};
+
+export async function getOpportunities(params: OpportunityParams = {}) {
+  return blikkGet<PagedResponse<BlikkRawItem>>(
+    "/v1/Core/Opportunities",
+    paged({
+      page: params.page,
+      pageSize: params.pageSize,
+      sortBy: params.sortBy,
+      sortOrder: params.sortOrder,
+      "filter.createdDateFrom": params.createdDateFrom,
+      "filter.createdDateTo": params.createdDateTo,
+      "filter.updatedDateFrom": params.updatedDateFrom,
+      "filter.updatedDateTo": params.updatedDateTo,
+      "filter.closedDateFrom": params.closedDateFrom,
+      "filter.closedDateTo": params.closedDateTo,
+      "filter.estimatedClosingDateFrom": params.estimatedClosingDateFrom,
+      "filter.estimatedClosingDateTo": params.estimatedClosingDateTo,
+      "filter.hasOffers": params.hasOffers,
+      "filter.opportunityStatusIds": params.opportunityStatusIds,
+      "filter.opportunityTagIds": params.opportunityTagIds,
+      "filter.opportunityState": params.opportunityState,
+    })
+  );
+}
+
+export async function getAllOpportunities(
+  params: Omit<OpportunityParams, "page" | "pageSize"> = {}
+) {
+  return fetchAllPages<BlikkRawItem>(
+    (page, pageSize) =>
+      getOpportunities({ ...params, page, pageSize }),
+    "opportunities"
+  );
+}
+
+export async function getOpportunity(opportunityId: string) {
+  return blikkGet<BlikkRawItem>(
+    `/v1/Core/Opportunities/${opportunityId}`
+  );
+}
+
+export async function getAllOpportunityStatuses() {
+  return fetchAllPages<BlikkRawItem>(
+    (page, pageSize) =>
+      blikkGet("/v1/Admin/OpportunityStatuses", { page, pageSize }),
+    "opportunity statuses"
+  );
+}
+
+export async function getAllOpportunityTags() {
+  return fetchAllPages<BlikkRawItem>(
+    (page, pageSize) =>
+      blikkGet("/v1/Admin/OpportunityTags", { page, pageSize }),
+    "opportunity tags"
+  );
+}
+
+export type ContactParams = {
+  query?: string;
+  contactType?: "person" | "company";
+  relations?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+export async function getContacts(params: ContactParams = {}) {
+  return blikkGet<PagedResponse<BlikkRawItem>>(
+    "/v1/Core/Contacts",
+    paged({
+      page: params.page,
+      pageSize: params.pageSize,
+      "filter.query": params.query,
+      "filter.contactType": params.contactType,
+      "filter.relations": params.relations,
+      sortBy: "name",
+      sortOrder: "ascending",
+    })
+  );
+}
+
+export async function getAllContacts(
+  params: Omit<ContactParams, "page" | "pageSize"> = {}
+) {
+  return fetchAllPages<BlikkRawItem>(
+    (page, pageSize) => getContacts({ ...params, page, pageSize }),
+    "contacts"
+  );
+}
+
+export async function getContact(contactId: string) {
+  return blikkGet<BlikkRawItem>(`/v1/Core/Contacts/${contactId}`);
+}
