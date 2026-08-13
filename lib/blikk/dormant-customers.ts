@@ -321,6 +321,62 @@ export async function getDormantCustomerOpportunities(options: {
   return { ...index, returnedRecommendations: recommendations.length, recommendations };
 }
 
+export async function getDormantCustomerIndexStatus() {
+  const state = await readJson<BuildState>(STATE_PATH);
+  const index = await readJson<DormantCustomerIndex>(INDEX_PATH);
+
+  if (!state) {
+    return {
+      exists: false,
+      complete: false,
+      phase: null,
+      progress: null,
+      percentComplete: 0,
+      lastUpdatedAt: null,
+      latestCompletedIndexAt: index?.generatedAt ?? null,
+      message:
+        "No build state exists yet. Wait for the cron job or run refresh_dormant_customer_index once.",
+    };
+  }
+
+  const isProjectPhase = state.phase === "time_reports";
+  const processed = isProjectPhase
+    ? state.nextProjectIndex
+    : state.nextCustomerIndex;
+  const total = isProjectPhase
+    ? state.candidates.length
+    : state.customers.length;
+  const percentComplete =
+    state.phase === "complete"
+      ? 100
+      : total === 0
+        ? 0
+        : Math.min(99.9, Math.round((processed / total) * 1000) / 10);
+
+  return {
+    exists: true,
+    buildId: state.buildId,
+    phase: state.phase,
+    complete: state.phase === "complete",
+    progress: {
+      processed,
+      total,
+      remaining: Math.max(total - processed, 0),
+      unit: isProjectPhase ? "projects" : "customers",
+    },
+    percentComplete,
+    startedAt: state.startedAt,
+    lastUpdatedAt: state.updatedAt,
+    years: state.years,
+    cutoffDate: state.cutoffDate,
+    dormantProjectsFound: state.dormantProjects.length,
+    verificationFailures: state.verificationFailures.length,
+    warningCount: state.warnings.length,
+    latestCompletedIndexAt: index?.generatedAt ?? null,
+    latestCompletedIndexBuildId: index?.buildId ?? null,
+  };
+}
+
 export async function analyzeCustomerOpportunity(projectQuery: string) {
   const normalized = projectQuery.trim().toLocaleLowerCase("sv");
   const matches = (await getProjectCatalog()).filter((project) =>
