@@ -444,8 +444,9 @@ export async function refreshDormantCustomerIndex(options: {
       ? { processed: state.nextProjectIndex, total: state.candidates.length, unit: "projects" }
       : { processed: state.nextCustomerIndex, total: state.customers.length, unit: "customers" },
     verificationFailures: state.verificationFailures.length,
-    futureDatedCompletedProjects: state.futureDatedCompletedProjects.length,
-    excludedProjects: state.excludedProjects.length,
+    futureDatedCompletedProjects:
+      state.futureDatedCompletedProjects?.length ?? 0,
+    excludedProjects: state.excludedProjects?.length ?? 0,
     nextAction: state.phase === "complete"
       ? "The index is ready. Use get_dormant_customer_opportunities."
       : "Wait for the next cron run or call refresh_dormant_customer_index again.",
@@ -484,8 +485,12 @@ export async function getDormantCustomerIndexStatus() {
     };
   }
   const isProjectPhase = state.phase === "time_reports";
-  const processed = isProjectPhase ? state.nextProjectIndex : state.nextCustomerIndex;
-  const total = isProjectPhase ? state.candidates.length : state.customers.length;
+  const processed = isProjectPhase
+    ? state.nextProjectIndex ?? 0
+    : state.nextCustomerIndex ?? 0;
+  const total = isProjectPhase
+    ? state.candidates?.length ?? 0
+    : state.customers?.length ?? 0;
   const percentComplete = state.phase === "complete"
     ? 100
     : total === 0
@@ -509,11 +514,12 @@ export async function getDormantCustomerIndexStatus() {
     years: state.years,
     cutoffDate: state.cutoffDate,
     upperDate: state.upperDate,
-    dormantProjectsFound: state.dormantProjects.length,
-    verificationFailures: state.verificationFailures.length,
-    futureDatedCompletedProjects: state.futureDatedCompletedProjects.length,
-    excludedProjects: state.excludedProjects.length,
-    warningCount: state.warnings.length,
+    dormantProjectsFound: state.dormantProjects?.length ?? 0,
+    verificationFailures: state.verificationFailures?.length ?? 0,
+    futureDatedCompletedProjects:
+      state.futureDatedCompletedProjects?.length ?? 0,
+    excludedProjects: state.excludedProjects?.length ?? 0,
+    warningCount: state.warnings?.length ?? 0,
     latestCompletedIndexAt: index?.generatedAt ?? null,
     latestCompletedIndexBuildId: index?.buildId ?? null,
     servingPreviousCompletedIndex:
