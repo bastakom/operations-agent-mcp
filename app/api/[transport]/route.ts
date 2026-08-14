@@ -40,6 +40,7 @@ import {
   getDormantCustomerIndexStatus,
   refreshDormantCustomerIndex,
 } from "../../../lib/blikk/dormant-customers";
+import { testGoogleSheetConnection } from "../../../lib/google/sheets";
 
 export const maxDuration = 300;
 
@@ -177,6 +178,56 @@ const handler = createMcpHandler(
             },
           ],
         };
+      }
+    );
+
+    server.registerTool(
+      "test_google_sheet_connection",
+      {
+        title: "Test Google Sheet Connection",
+        description:
+          "Tests read-only access to the configured Google Sheet. Returns spreadsheet and tab names, dimensions, populated row and column counts, and headers only. It never returns credentials or full sheet contents.",
+        inputSchema: {},
+      },
+      async () => {
+        console.log(
+          ":arrow_right: test_google_sheet_connection tool invoked"
+        );
+
+        try {
+          const result = await testGoogleSheetConnection();
+
+          console.log(
+            ":white_check_mark: testGoogleSheetConnection() completed"
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          console.error(
+            ":x: test_google_sheet_connection failed:",
+            error
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Google Sheets error: ${error.message}`
+                    : "Unknown Google Sheets error",
+              },
+            ],
+            isError: true,
+          };
+        }
       }
     );
 
@@ -1389,3 +1440,4 @@ export {
   authenticatedHandler as POST,
   authenticatedHandler as DELETE,
 };
+
