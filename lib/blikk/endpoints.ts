@@ -488,6 +488,114 @@ export async function getAllMaterialReports(
   );
 }
 
+export type CustomerInvoiceParams = {
+  customerId?: string;
+  createdSince?: string;
+  sinceId?: string;
+  sortBy?:
+    | "createdDate"
+    | "invoiceDate"
+    | "customer"
+    | "sum"
+    | "sentToEconomySystem";
+  sortOrder?: "ascending" | "descending";
+  page?: number;
+  pageSize?: number;
+};
+
+export async function getCustomerInvoices(
+  params: CustomerInvoiceParams = {}
+) {
+  return blikkGet<PagedResponse<BlikkRawItem>>(
+    "/v1/Core/Invoices",
+    paged({
+      page: params.page,
+      pageSize: params.pageSize,
+      sortBy: params.sortBy,
+      sortOrder: params.sortOrder,
+      "filter.customerId": params.customerId,
+      "filter.createdSince": params.createdSince,
+      "filter.sinceId": params.sinceId,
+    })
+  );
+}
+
+export async function getAllCustomerInvoices(
+  params: Omit<CustomerInvoiceParams, "page" | "pageSize"> = {}
+) {
+  return fetchAllPages<BlikkRawItem>(
+    (page, pageSize) =>
+      getCustomerInvoices({
+        ...params,
+        page,
+        pageSize,
+      }),
+    "customer invoices"
+  );
+}
+
+export async function getCustomerInvoice(invoiceId: string) {
+  return blikkGet<BlikkRawItem>(
+    `/v1/Core/Invoices/${invoiceId}`
+  );
+}
+
+export type OfferState =
+  | "draft"
+  | "locked"
+  | "sentToCustomer"
+  | "openedByCustomer"
+  | "accepted"
+  | "acceptedSigned"
+  | "denied";
+
+export type OfferParams = {
+  offerNumber?: string;
+  createdDateFrom?: string;
+  createdDateTo?: string;
+  updatedDateFrom?: string;
+  updatedDateTo?: string;
+  offerState?: OfferState;
+  opportunityId?: string;
+  sortBy?: "title" | "offerNumber" | "createdDate" | "updatedDate";
+  sortOrder?: "ascending" | "descending";
+  page?: number;
+  pageSize?: number;
+};
+
+export async function getOffers(params: OfferParams = {}) {
+  return blikkGet<PagedResponse<BlikkRawItem>>(
+    "/v1/Core/Offers",
+    paged({
+      page: params.page,
+      pageSize: params.pageSize,
+      sortBy: params.sortBy,
+      sortOrder: params.sortOrder,
+      "filter.offerNumber": params.offerNumber,
+      "filter.createdDateFrom": params.createdDateFrom,
+      "filter.createdDateTo": params.createdDateTo,
+      "filter.updatedDateFrom": params.updatedDateFrom,
+      "filter.updatedDateTo": params.updatedDateTo,
+      "filter.offerState": params.offerState,
+      "filter.opportunityId": params.opportunityId,
+    })
+  );
+}
+
+export async function getAllOffers(
+  params: Omit<OfferParams, "page" | "pageSize"> = {}
+) {
+  return fetchAllPages<BlikkRawItem>(
+    (page, pageSize) =>
+      getOffers({
+        ...params,
+        page,
+        pageSize,
+      }),
+    "offers"
+  );
+}
+
 export type OpportunityState = "open" | "won" | "lost";
 
 export type OpportunityParams = {
@@ -600,3 +708,4 @@ export async function getAllContacts(
 export async function getContact(contactId: string) {
   return blikkGet<BlikkRawItem>(`/v1/Core/Contacts/${contactId}`);
 }
+
