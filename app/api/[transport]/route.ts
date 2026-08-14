@@ -45,6 +45,7 @@ import {
   getCustomerInvoiceSummary,
   getOfferPipeline,
 } from "../../../lib/blikk/sales";
+import { getCustomerSalesSnapshot } from "../../../lib/blikk/customer-sales";
 
 export const maxDuration = 300;
 
@@ -373,6 +374,72 @@ const handler = createMcpHandler(
                   error instanceof Error
                     ? `Blikk offer error: ${error.message}`
                     : "Unknown Blikk offer error",
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "get_customer_sales_snapshot",
+      {
+        title: "Get Customer Sales Snapshot",
+        description:
+          "Builds a read-only sales snapshot for one Blikk customer ID. Combines customer invoices, projects, opportunities and offers; calculates invoiced sales, pipeline and weighted pipeline; and reports data-quality flags. Sold-not-invoiced, annual budget and budget gap remain null until their authoritative sources are configured.",
+        inputSchema: {
+          customerId: z
+            .string()
+            .regex(/^\d+$/, "Use a numeric Blikk customer ID."),
+          year: z
+            .number()
+            .int()
+            .min(2000)
+            .max(2100)
+            .optional(),
+          staleOfferDays: z
+            .number()
+            .int()
+            .min(1)
+            .max(3650)
+            .optional(),
+        },
+      },
+      async ({ customerId, year, staleOfferDays }) => {
+        console.log(
+          ":arrow_right: get_customer_sales_snapshot tool invoked"
+        );
+
+        try {
+          const result = await getCustomerSalesSnapshot({
+            customerId,
+            year,
+            staleOfferDays,
+          });
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          console.error(
+            ":x: get_customer_sales_snapshot failed:",
+            error
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Customer sales snapshot error: ${error.message}`
+                    : "Unknown customer sales snapshot error",
               },
             ],
             isError: true,
@@ -1590,5 +1657,6 @@ export {
   authenticatedHandler as POST,
   authenticatedHandler as DELETE,
 };
+
 
 
