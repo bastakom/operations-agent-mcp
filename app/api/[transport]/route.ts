@@ -41,6 +41,10 @@ import {
   refreshDormantCustomerIndex,
 } from "../../../lib/blikk/dormant-customers";
 import { testGoogleSheetConnection } from "../../../lib/google/sheets";
+import {
+  getCustomerInvoiceSummary,
+  getOfferPipeline,
+} from "../../../lib/blikk/sales";
 
 export const maxDuration = 300;
 
@@ -223,6 +227,152 @@ const handler = createMcpHandler(
                   error instanceof Error
                     ? `Google Sheets error: ${error.message}`
                     : "Unknown Google Sheets error",
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "get_customer_invoices",
+      {
+        title: "Get Customer Invoices",
+        description:
+          "Returns read-only Blikk customer invoices and totals excluding VAT. Optionally filters by numeric Blikk customer ID and invoice year. The total represents invoiced sales, not supplier costs.",
+        inputSchema: {
+          customerId: z
+            .string()
+            .regex(/^\d+$/, "Use a numeric Blikk customer ID.")
+            .optional(),
+          year: z
+            .number()
+            .int()
+            .min(2000)
+            .max(2100)
+            .optional(),
+        },
+      },
+      async ({ customerId, year }) => {
+        console.log(
+          ":arrow_right: get_customer_invoices tool invoked"
+        );
+
+        try {
+          const result = await getCustomerInvoiceSummary({
+            customerId,
+            year,
+          });
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          console.error(
+            ":x: get_customer_invoices failed:",
+            error
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Blikk invoice error: ${error.message}`
+                    : "Unknown Blikk invoice error",
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "get_offers",
+      {
+        title: "Get Offers",
+        description:
+          "Returns a read-only Blikk offer pipeline. Totals use only the latest version of each offer number to avoid double counting. Separates active, accepted, denied and draft offers. Accepted offer value is not automatically treated as sold-not-invoiced.",
+        inputSchema: {
+          state: z
+            .enum([
+              "draft",
+              "locked",
+              "sentToCustomer",
+              "openedByCustomer",
+              "accepted",
+              "acceptedSigned",
+              "denied",
+            ])
+            .optional(),
+          opportunityId: z
+            .string()
+            .regex(/^\d+$/, "Use a numeric opportunity ID.")
+            .optional(),
+          offerNumber: z
+            .string()
+            .regex(/^\d+$/, "Use a numeric offer number.")
+            .optional(),
+          createdFrom: blikkDateSchema.optional(),
+          createdTo: blikkDateSchema.optional(),
+          updatedFrom: blikkDateSchema.optional(),
+          updatedTo: blikkDateSchema.optional(),
+          sortBy: z
+            .enum([
+              "title",
+              "offerNumber",
+              "createdDate",
+              "updatedDate",
+            ])
+            .optional(),
+          sortOrder: z
+            .enum(["ascending", "descending"])
+            .optional(),
+        },
+      },
+      async (input) => {
+        console.log(":arrow_right: get_offers tool invoked");
+
+        try {
+          const result = await getOfferPipeline({
+            offerState: input.state,
+            opportunityId: input.opportunityId,
+            offerNumber: input.offerNumber,
+            createdDateFrom: input.createdFrom,
+            createdDateTo: input.createdTo,
+            updatedDateFrom: input.updatedFrom,
+            updatedDateTo: input.updatedTo,
+            sortBy: input.sortBy,
+            sortOrder: input.sortOrder,
+          });
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          console.error(":x: get_offers failed:", error);
+
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Blikk offer error: ${error.message}`
+                    : "Unknown Blikk offer error",
               },
             ],
             isError: true,
@@ -1440,4 +1590,5 @@ export {
   authenticatedHandler as POST,
   authenticatedHandler as DELETE,
 };
+
 
