@@ -23,7 +23,7 @@ export type SafeCustomerInvoice = {
 
 export type SafeOffer = {
   id: string;
-  offerNumber: string;
+  offerNumber: string | null;
   version: number;
   title: string;
   offerValue: number;
@@ -177,9 +177,9 @@ export function toSafeOffer(
   const id = text(item.id);
   const offerNumber = text(item.offerNumber);
 
-  if (!id || !offerNumber) {
+  if (!id) {
     throw new Error(
-      "Blikk returned an offer without an id or offer number."
+      "Blikk returned an offer without an id."
     );
   }
 
@@ -230,7 +230,11 @@ function latestOfferVersions(
   const latest = new Map<string, SafeOffer>();
 
   for (const offer of offers) {
-    const current = latest.get(offer.offerNumber);
+    const versionKey =
+      offer.offerNumber !== null
+        ? `number:${offer.offerNumber}`
+        : `id:${offer.id}`;
+    const current = latest.get(versionKey);
 
     if (
       !current ||
@@ -239,7 +243,7 @@ function latestOfferVersions(
         (offer.updatedDate ?? "") >
           (current.updatedDate ?? ""))
     ) {
-      latest.set(offer.offerNumber, offer);
+      latest.set(versionKey, offer);
     }
   }
 
@@ -403,6 +407,9 @@ export async function getOfferPipeline(
         offers,
         (offer) => offer.state === "draft"
       ),
+      withoutOfferNumber: offers.filter(
+        (offer) => offer.offerNumber === null
+      ).length,
       withoutOpportunity: offers.filter(
         (offer) => offer.opportunity === null
       ).length,
@@ -414,4 +421,5 @@ export async function getOfferPipeline(
     offers,
   };
 }
+
 
