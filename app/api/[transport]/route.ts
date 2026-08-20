@@ -46,6 +46,11 @@ import {
   getOfferPipeline,
 } from "../../../lib/blikk/sales";
 import { getCustomerSalesSnapshot } from "../../../lib/blikk/customer-sales";
+import {
+  getSalesSummaryIndex,
+  getSalesSummaryIndexStatus,
+  refreshSalesSummaryIndex,
+} from "../../../lib/blikk/sales-summary-index";
 
 export const maxDuration = 300;
 
@@ -440,6 +445,152 @@ const handler = createMcpHandler(
                   error instanceof Error
                     ? `Customer sales snapshot error: ${error.message}`
                     : "Unknown customer sales snapshot error",
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "refresh_sales_summary_index",
+      {
+        title: "Refresh Sales Summary Index",
+        description:
+          "Starts or continues the private Sales Summary index. The build is incremental and safe to resume. Call repeatedly until complete is true, or let the configured cron job continue it. Use reset only when intentionally starting a new build.",
+        inputSchema: {
+          reportYear: z
+            .number()
+            .int()
+            .min(2000)
+            .max(2100)
+            .optional(),
+          opportunityBatchSize: z
+            .number()
+            .int()
+            .min(1)
+            .max(30)
+            .optional(),
+          reset: z.boolean().optional(),
+        },
+      },
+      async ({
+        reportYear,
+        opportunityBatchSize,
+        reset,
+      }) => {
+        try {
+          const result = await refreshSalesSummaryIndex({
+            reportYear,
+            opportunityBatchSize,
+            reset,
+          });
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Sales Summary index error: ${error.message}`
+                    : "Unknown Sales Summary index error",
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "get_sales_summary_index_status",
+      {
+        title: "Get Sales Summary Index Status",
+        description:
+          "Reads the current private Sales Summary build state without starting or changing the build. Returns phase, percentage, source counts, opportunity-detail progress, failures and timestamps.",
+        inputSchema: {},
+      },
+      async () => {
+        try {
+          const result = await getSalesSummaryIndexStatus();
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Sales Summary status error: ${error.message}`
+                    : "Unknown Sales Summary status error",
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "get_sales_summary",
+      {
+        title: "Get Sales Summary",
+        description:
+          "Reads the latest completed private Sales Summary index without rescanning Blikk. Returns agency totals, totals by responsible person, customer summaries, Sales Attention signals and data-quality flags. Optionally filters customers by customer name, Blikk customer ID or responsible person. Sold-not-invoiced, annual budget and budget gap remain null until authoritative sources are connected.",
+        inputSchema: {
+          customer: z.string().trim().min(1).optional(),
+          responsible: z.string().trim().min(1).optional(),
+          limit: z
+            .number()
+            .int()
+            .min(1)
+            .max(500)
+            .optional(),
+        },
+      },
+      async ({ customer, responsible, limit }) => {
+        try {
+          const result = await getSalesSummaryIndex({
+            customer,
+            responsible,
+            limit,
+          });
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Sales Summary error: ${error.message}`
+                    : "Unknown Sales Summary error",
               },
             ],
             isError: true,
@@ -1657,6 +1808,7 @@ export {
   authenticatedHandler as POST,
   authenticatedHandler as DELETE,
 };
+
 
 
 
