@@ -125,6 +125,8 @@ export type SalesSummaryIndex = {
     customerIds: string[];
   }>;
   customers: SalesSummaryCustomer[];
+  opportunityLedger: SafeOpportunity[];
+  offerLedger: SafeOffer[];
   salesAttention: {
     customersWithoutResponsible: string[];
     opportunitiesWithoutValue: string[];
@@ -393,6 +395,8 @@ function buildIndex(state: BuildState): SalesSummaryIndex {
       customerIds: items.map((item) => item.customerId),
     })).sort((a, b) => b.totals.preliminaryForecast - a.totals.preliminaryForecast),
     customers,
+    opportunityLedger: state.opportunities,
+    offerLedger: state.offers,
     salesAttention: {
       customersWithoutResponsible: customers.filter((item) => !item.responsible?.name).map((item) => item.customerId),
       opportunitiesWithoutValue: allFlags.filter((item) => item.code === "OPEN_OPPORTUNITY_WITHOUT_VALUE").map((item) => item.entityId),
@@ -516,3 +520,4 @@ export async function getSalesSummaryIndexStatus() {
     servingPreviousCompletedIndex: index !== null && index.buildId !== state.buildId && state.phase !== "complete",
   };
 }
+
