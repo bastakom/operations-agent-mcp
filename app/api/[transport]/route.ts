@@ -51,6 +51,7 @@ import {
   getSalesSummaryIndexStatus,
   refreshSalesSummaryIndex,
 } from "../../../lib/blikk/sales-summary-index";
+import { getSalesSummaryWeeklyComparison } from "../../../lib/blikk/sales-summary-weekly";
 
 export const maxDuration = 300;
 
@@ -591,6 +592,61 @@ const handler = createMcpHandler(
                   error instanceof Error
                     ? `Sales Summary error: ${error.message}`
                     : "Unknown Sales Summary error",
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "get_sales_summary_weekly_comparison",
+      {
+        title: "Get Sales Summary Weekly Comparison",
+        description:
+          "Compares two completed private Sales Summary snapshots from different ISO weeks. Returns agency-level changes, changed customers, new/won/lost opportunities, offer transitions and weekly Sales Attention. It never invents sold-not-invoiced, annual budget or budget gap when those sources are unavailable.",
+        inputSchema: {
+          week: z
+            .string()
+            .regex(
+              /^\\d{4}-W\\d{2}$/,
+              "Use ISO week format YYYY-Www, for example 2026-W34."
+            )
+            .optional(),
+          customerLimit: z
+            .number()
+            .int()
+            .min(1)
+            .max(500)
+            .optional(),
+        },
+      },
+      async ({ week, customerLimit }) => {
+        try {
+          const result =
+            await getSalesSummaryWeeklyComparison({
+              week,
+              customerLimit,
+            });
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Sales Summary weekly comparison error: ${error.message}`
+                    : "Unknown Sales Summary weekly comparison error",
               },
             ],
             isError: true,
@@ -1808,6 +1864,7 @@ export {
   authenticatedHandler as POST,
   authenticatedHandler as DELETE,
 };
+
 
 
 
