@@ -165,7 +165,7 @@ function validateDate(
   return value;
 }
 
-function toSafePaymentPlan(
+export function toSafePaymentPlan(
   item: BlikkRawItem
 ): SafePaymentPlan {
   const id = text(item.id);
@@ -203,6 +203,16 @@ function toSafePaymentPlan(
       : invoiceDraftId
         ? "in_invoice_draft"
         : "not_invoiced_without_draft",
+  };
+}
+
+export async function getAllSafePaymentPlans() {
+  const response = await getAllPaymentPlans({});
+
+  return {
+    pagesFetched: response.pagesFetched,
+    itemCount: response.items.length,
+    items: response.items.map(toSafePaymentPlan),
   };
 }
 
@@ -385,3 +395,4 @@ export async function inspectUninvoicedPaymentPlans(
     warnings,
   };
 }
+
