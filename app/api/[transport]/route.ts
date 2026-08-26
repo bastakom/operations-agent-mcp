@@ -601,6 +601,139 @@ const handler = createMcpHandler(
     );
 
     server.registerTool(
+      "get_sales_data_quality",
+      {
+        title: "Get Sales Data Quality",
+        description:
+          "Reads the enhanced data-quality audit from the latest completed private Sales Summary index. Returns duplicate-customer warnings and quality flags for customers, projects, open opportunities and offers. It does not rescan Blikk or change any data.",
+        inputSchema: {
+          severity: z
+            .enum(["warning", "error"])
+            .optional(),
+          code: z.string().trim().min(1).optional(),
+          entityType: z
+            .enum([
+              "customer",
+              "project",
+              "opportunity",
+              "offer",
+            ])
+            .optional(),
+          customer: z.string().trim().min(1).optional(),
+          limit: z
+            .number()
+            .int()
+            .min(1)
+            .max(500)
+            .optional(),
+        },
+      },
+      async ({
+        severity,
+        code,
+        entityType,
+        customer,
+        limit,
+      }) => {
+        try {
+          const summary = await getSalesSummaryIndex({
+            limit: 1,
+          });
+          const audit = summary.dataQuality.audit;
+
+          if (!audit) {
+            throw new Error(
+              "Det senaste färdiga Sales Summary-indexet saknar den utökade datakvalitetsgranskningen. Låt den aktuella indexeringen slutföras och försök sedan igen."
+            );
+          }
+
+          const normalizedCode =
+            code?.trim().toLocaleUpperCase("sv");
+          const normalizedCustomer =
+            customer?.trim().toLocaleLowerCase("sv");
+          const filteredFlags = audit.flags
+            .filter(
+              (flag) =>
+                !severity ||
+                flag.severity === severity
+            )
+            .filter(
+              (flag) =>
+                !normalizedCode ||
+                flag.code.toLocaleUpperCase("sv") ===
+                  normalizedCode
+            )
+            .filter(
+              (flag) =>
+                !entityType ||
+                flag.entityType === entityType
+            )
+            .filter((flag) => {
+              if (!normalizedCustomer) return true;
+
+              return (
+                flag.customerId === customer ||
+                (flag.customerName ?? "")
+                  .toLocaleLowerCase("sv")
+                  .includes(normalizedCustomer)
+              );
+            });
+
+          const returnedFlags = filteredFlags.slice(
+            0,
+            limit ?? 100
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    generatedAt: audit.generatedAt,
+                    filters: {
+                      severity: severity ?? null,
+                      code: normalizedCode ?? null,
+                      entityType: entityType ?? null,
+                      customer: customer ?? null,
+                    },
+                    totals: {
+                      allFlags: audit.totalFlags,
+                      errors: audit.errorCount,
+                      warnings: audit.warningCount,
+                      matchingFlags: filteredFlags.length,
+                      returnedFlags:
+                        returnedFlags.length,
+                    },
+                    countsByCode:
+                      audit.countsByCode,
+                    flags: returnedFlags,
+                    limitations: audit.limitations,
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Sales data-quality error: ${error.message}`
+                    : "Unknown Sales data-quality error",
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    server.registerTool(
       "get_sales_summary_weekly_comparison",
       {
         title: "Get Sales Summary Weekly Comparison",
@@ -1864,6 +1997,7 @@ export {
   authenticatedHandler as POST,
   authenticatedHandler as DELETE,
 };
+
 
 
 
