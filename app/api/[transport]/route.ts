@@ -28,6 +28,7 @@ import {
 } from "../../../lib/blikk/budget";
 import { getProjectCatalogView } from "../../../lib/blikk/project-catalog";
 import { inspectProjectFinanceSources } from "../../../lib/blikk/project-finance";
+import { inspectUninvoicedPaymentPlans } from "../../../lib/blikk/uninvoiced-payment-plans";
 import { getClassifiedPlanningSummariesForUser } from "../../../lib/blikk/planning";
 import {
   getOpportunityPipeline,
@@ -780,6 +781,65 @@ const handler = createMcpHandler(
                   error instanceof Error
                     ? `Sales Summary weekly comparison error: ${error.message}`
                     : "Unknown Sales Summary weekly comparison error",
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    server.registerTool(
+      "inspect_uninvoiced_payment_plans",
+      {
+        title: "Inspect Uninvoiced Payment Plans",
+        description:
+          "Reads all Blikk payment plans for one resolved project and separates invoiced rows, rows in invoice drafts and rows without invoices or drafts. Returns a candidate sold-not-invoiced amount for validation only. It never changes Blikk data and does not treat the candidate as authoritative sales.",
+        inputSchema: {
+          project: z.string().trim().min(1),
+          plannedFrom: blikkDateSchema.optional(),
+          plannedTo: blikkDateSchema.optional(),
+        },
+      },
+      async ({
+        project,
+        plannedFrom,
+        plannedTo,
+      }) => {
+        console.log(
+          ":arrow_right: inspect_uninvoiced_payment_plans tool invoked"
+        );
+
+        try {
+          const result =
+            await inspectUninvoicedPaymentPlans({
+              project,
+              plannedFrom,
+              plannedTo,
+            });
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        } catch (error) {
+          console.error(
+            ":x: inspect_uninvoiced_payment_plans failed:",
+            error
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  error instanceof Error
+                    ? `Uninvoiced payment-plan error: ${error.message}`
+                    : "Unknown uninvoiced payment-plan error",
               },
             ],
             isError: true,
@@ -1997,6 +2057,7 @@ export {
   authenticatedHandler as POST,
   authenticatedHandler as DELETE,
 };
+
 
 
 
