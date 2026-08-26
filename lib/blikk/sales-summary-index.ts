@@ -12,11 +12,17 @@ import {
   type SafeCustomerInvoice,
   type SafeOffer,
 } from "./sales";
+import {
+  resolveSalesCustomerContacts,
+  type SalesCustomerContact,
+  type SalesCustomerContactFailure,
+  type SalesCustomerReference,
+} from "./sales-summary-contacts";
 
 const STATE_PATH = "sales-summary/build-state.json";
 const INDEX_PATH = "sales-summary/index.json";
 const SNAPSHOT_PREFIX = "sales-summary/weekly";
-const INDEX_VERSION = 1;
+const INDEX_VERSION = 2;
 const DETAIL_DELAY_MS = 1100;
 
 type SafeOpportunity = ReturnType<typeof toSafeOpportunity>;
@@ -26,6 +32,7 @@ type BuildPhase =
   | "opportunities"
   | "opportunity_details"
   | "offers"
+  | "contacts"
   | "aggregate"
   | "complete";
 
@@ -38,7 +45,7 @@ type DataQualityFlag = {
 };
 
 type BuildState = {
-  version: 1;
+  version: 2;
   buildId: string;
   phase: BuildPhase;
   startedAt: string;
@@ -54,13 +61,30 @@ type BuildState = {
     error: string;
   }>;
   offers: SafeOffer[];
+  customerReferences: SalesCustomerReference[];
+  nextCustomerContactIndex: number;
+  contacts: Record<string, SalesCustomerContact>;
+  contactFailures: SalesCustomerContactFailure[];
   warnings: string[];
 };
 
 export type SalesSummaryCustomer = {
   customerId: string;
   customerName: string;
+  customerNumber: string | null;
   responsible: { id: string | null; name: string | null } | null;
+  responsibleSource:
+    | "customer_contact"
+    | "opportunity_project_offer_fallback"
+    | "none";
+  contact: {
+    email: string | null;
+    invoiceEmail: string | null;
+    phoneNumber: string | null;
+    cellPhoneNumber: string | null;
+    isActive: boolean | null;
+    importantInformation: string | null;
+  } | null;
   historicalSales: Record<string, number>;
   invoicedCurrentYear: number;
   invoiceCountCurrentYear: number;
@@ -105,7 +129,7 @@ type SalesTotals = {
 };
 
 export type SalesSummaryIndex = {
-  version: 1;
+  version: 2;
   generatedAt: string;
   buildId: string;
   reportYear: number;
@@ -138,6 +162,7 @@ export type SalesSummaryIndex = {
     flags: DataQualityFlag[];
     countsByCode: Record<string, number>;
     opportunityDetailFailures: BuildState["opportunityDetailFailures"];
+    contactFailures: BuildState["contactFailures"];
   };
   warnings: string[];
 };
@@ -164,7 +189,7 @@ async function writeJson(pathname: string, value: unknown) {
 function createState(reportYear: number): BuildState {
   const now = new Date().toISOString();
   return {
-    version: 1,
+    version: 2,
     buildId: crypto.randomUUID(),
     phase: "projects",
     startedAt: now,
@@ -176,6 +201,10 @@ function createState(reportYear: number): BuildState {
     nextOpportunityDetailIndex: 0,
     opportunityDetailFailures: [],
     offers: [],
+    customerReferences: [],
+    nextCustomerContactIndex: 0,
+    contacts: {},
+    contactFailures: [],
     warnings: [],
   };
 }
@@ -259,20 +288,66 @@ function isoWeek(date: Date) {
   return `${value.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
-function buildIndex(state: BuildState): SalesSummaryIndex {
+function collectCustomerNames(state: BuildState) {
   const customerNames = new Map<string, string>();
+
   for (const project of state.projects) {
-    if (project.customerId) customerNames.set(project.customerId, project.customerName ?? project.customerId);
+    if (project.customerId) {
+      customerNames.set(
+        project.customerId,
+        project.customerName ?? project.customerId
+      );
+    }
   }
+
   for (const invoice of state.invoices) {
-    if (invoice.customer?.id) customerNames.set(invoice.customer.id, invoice.customer.name ?? invoice.customer.id);
+    if (invoice.customer?.id) {
+      customerNames.set(
+        invoice.customer.id,
+        invoice.customer.name ?? invoice.customer.id
+      );
+    }
   }
+
   for (const opportunity of state.opportunities) {
-    if (opportunity.customer?.id) customerNames.set(opportunity.customer.id, opportunity.customer.name ?? opportunity.customer.id);
+    if (opportunity.customer?.id) {
+      customerNames.set(
+        opportunity.customer.id,
+        opportunity.customer.name ?? opportunity.customer.id
+      );
+    }
   }
+
   for (const offer of state.offers) {
-    if (offer.customer?.id) customerNames.set(offer.customer.id, offer.customer.name ?? offer.customer.id);
+    if (offer.customer?.id) {
+      customerNames.set(
+        offer.customer.id,
+        offer.customer.name ?? offer.customer.id
+      );
+    }
   }
+
+  return customerNames;
+}
+
+function buildCustomerReferences(
+  state: BuildState
+): SalesCustomerReference[] {
+  return [...collectCustomerNames(state).entries()]
+    .map(([customerId, customerName]) => ({
+      customerId,
+      customerName,
+    }))
+    .sort((a, b) =>
+      a.customerName.localeCompare(
+        b.customerName,
+        "sv"
+      )
+    );
+}
+
+function buildIndex(state: BuildState): SalesSummaryIndex {
+  const customerNames = collectCustomerNames(state);
 
   const today = new Date().toISOString().slice(0, 10);
   const allFlags: DataQualityFlag[] = state.projects
@@ -293,7 +368,22 @@ function buildIndex(state: BuildState): SalesSummaryIndex {
     const activeProjects = projects.filter((item) => item.isCompleted !== true);
     const activeOffers = offers.filter(isActiveOffer);
     const acceptedOffers = offers.filter(isAcceptedOffer);
-    const responsible = responsibleForCustomer(projects, opportunities, offers);
+    const customerContact =
+      state.contacts[customerId] ?? null;
+    const fallbackResponsible = responsibleForCustomer(
+      projects,
+      opportunities,
+      offers
+    );
+    const responsible =
+      customerContact?.responsible ??
+      fallbackResponsible;
+    const responsibleSource =
+      customerContact?.responsible
+        ? ("customer_contact" as const)
+        : fallbackResponsible
+          ? ("opportunity_project_offer_fallback" as const)
+          : ("none" as const);
     const historicalSales: Record<string, number> = {};
 
     for (const invoice of invoices) {
@@ -341,8 +431,27 @@ function buildIndex(state: BuildState): SalesSummaryIndex {
 
     return {
       customerId,
-      customerName,
+      customerName:
+        customerContact?.customerName ??
+        customerName,
+      customerNumber:
+        customerContact?.customerNumber ?? null,
       responsible,
+      responsibleSource,
+      contact: customerContact
+        ? {
+            email: customerContact.email,
+            invoiceEmail:
+              customerContact.invoiceEmail,
+            phoneNumber:
+              customerContact.phoneNumber,
+            cellPhoneNumber:
+              customerContact.cellPhoneNumber,
+            isActive: customerContact.isActive,
+            importantInformation:
+              customerContact.importantInformation,
+          }
+        : null,
       historicalSales,
       invoicedCurrentYear,
       invoiceCountCurrentYear: invoices.filter((item) => yearOf(item.invoiceDate) === String(state.reportYear)).length,
@@ -375,7 +484,7 @@ function buildIndex(state: BuildState): SalesSummaryIndex {
   for (const flag of allFlags) countsByCode[flag.code] = (countsByCode[flag.code] ?? 0) + 1;
 
   return {
-    version: 1,
+    version: 2,
     generatedAt: new Date().toISOString(),
     buildId: state.buildId,
     reportYear: state.reportYear,
@@ -404,7 +513,13 @@ function buildIndex(state: BuildState): SalesSummaryIndex {
       opportunitiesWithoutClosingDate: allFlags.filter((item) => item.code === "OPEN_OPPORTUNITY_WITHOUT_CLOSING_DATE").map((item) => item.entityId),
       overdueOpenOpportunities: state.opportunities.filter((item) => item.state === "open" && item.estimatedClosingDate !== null && item.estimatedClosingDate.slice(0, 10) < today).map((item) => item.id),
     },
-    dataQuality: { flags: allFlags, countsByCode, opportunityDetailFailures: state.opportunityDetailFailures },
+    dataQuality: {
+      flags: allFlags,
+      countsByCode,
+      opportunityDetailFailures:
+        state.opportunityDetailFailures,
+      contactFailures: state.contactFailures,
+    },
     warnings: state.warnings,
   };
 }
@@ -458,7 +573,30 @@ export async function refreshSalesSummaryIndex(options: {
     if (state.nextOpportunityDetailIndex >= state.opportunities.length) state.phase = "offers";
   } else if (state.phase === "offers") {
     state.offers = (await getOfferPipeline()).offers;
-    state.phase = "aggregate";
+    state.customerReferences =
+      buildCustomerReferences(state);
+    state.phase = "contacts";
+  } else if (state.phase === "contacts") {
+    const batch = state.customerReferences.slice(
+      state.nextCustomerContactIndex,
+      state.nextCustomerContactIndex + batchSize
+    );
+    const result =
+      await resolveSalesCustomerContacts(batch);
+
+    state.contacts = {
+      ...state.contacts,
+      ...result.contacts,
+    };
+    state.contactFailures.push(...result.failures);
+    state.nextCustomerContactIndex += batch.length;
+
+    if (
+      state.nextCustomerContactIndex >=
+      state.customerReferences.length
+    ) {
+      state.phase = "aggregate";
+    }
   } else if (state.phase === "aggregate") {
     const index = buildIndex(state);
     await persistCompletedIndex(index);
@@ -471,10 +609,26 @@ export async function refreshSalesSummaryIndex(options: {
     buildId: state.buildId,
     phase: state.phase,
     complete: state.phase === "complete",
-    progress: state.phase === "opportunity_details"
-      ? { processed: state.nextOpportunityDetailIndex, total: state.opportunities.length, unit: "opportunities" }
-      : null,
-    verificationFailures: state.opportunityDetailFailures.length,
+    progress:
+      state.phase === "opportunity_details"
+        ? {
+            processed:
+              state.nextOpportunityDetailIndex,
+            total: state.opportunities.length,
+            unit: "opportunities",
+          }
+        : state.phase === "contacts"
+          ? {
+              processed:
+                state.nextCustomerContactIndex,
+              total:
+                state.customerReferences.length,
+              unit: "customers",
+            }
+          : null,
+    verificationFailures:
+      state.opportunityDetailFailures.length,
+    contactFailures: state.contactFailures.length,
     nextAction: state.phase === "complete" ? "Sales Summary-indexet är klart." : "Vänta på nästa cron-körning eller kör uppdateringen igen.",
   };
 }
@@ -499,10 +653,37 @@ export async function getSalesSummaryIndexStatus() {
   const state = await readJson<BuildState>(STATE_PATH);
   const index = await readJson<SalesSummaryIndex>(INDEX_PATH);
   if (!state) return { exists: false, complete: false, phase: null, percentComplete: 0, latestCompletedIndexAt: index?.generatedAt ?? null };
-  const phaseOrder: BuildPhase[] = ["projects", "invoices", "opportunities", "opportunity_details", "offers", "aggregate", "complete"];
+  const phaseOrder: BuildPhase[] = [
+    "projects",
+    "invoices",
+    "opportunities",
+    "opportunity_details",
+    "offers",
+    "contacts",
+    "aggregate",
+    "complete",
+  ];
   const phaseIndex = phaseOrder.indexOf(state.phase);
   const detailFraction = state.opportunities.length === 0 ? 0 : state.nextOpportunityDetailIndex / state.opportunities.length;
-  const percentComplete = state.phase === "complete" ? 100 : Math.round(((phaseIndex + (state.phase === "opportunity_details" ? detailFraction : 0)) / (phaseOrder.length - 1)) * 1000) / 10;
+  const contactFraction =
+    state.customerReferences.length === 0
+      ? 0
+      : state.nextCustomerContactIndex /
+        state.customerReferences.length;
+  const activePhaseFraction =
+    state.phase === "opportunity_details"
+      ? detailFraction
+      : state.phase === "contacts"
+        ? contactFraction
+        : 0;
+  const percentComplete =
+    state.phase === "complete"
+      ? 100
+      : Math.round(
+          ((phaseIndex + activePhaseFraction) /
+            (phaseOrder.length - 1)) *
+            1000
+        ) / 10;
   return {
     exists: true,
     version: state.version,
@@ -511,13 +692,49 @@ export async function getSalesSummaryIndexStatus() {
     complete: state.phase === "complete",
     percentComplete,
     reportYear: state.reportYear,
-    progress: state.phase === "opportunity_details" ? { processed: state.nextOpportunityDetailIndex, total: state.opportunities.length, remaining: Math.max(state.opportunities.length - state.nextOpportunityDetailIndex, 0), unit: "opportunities" } : null,
-    sourceCounts: { projects: state.projects.length, invoices: state.invoices.length, opportunities: state.opportunities.length, offers: state.offers.length },
-    verificationFailures: state.opportunityDetailFailures.length,
+    progress:
+      state.phase === "opportunity_details"
+        ? {
+            processed:
+              state.nextOpportunityDetailIndex,
+            total: state.opportunities.length,
+            remaining: Math.max(
+              state.opportunities.length -
+                state.nextOpportunityDetailIndex,
+              0
+            ),
+            unit: "opportunities",
+          }
+        : state.phase === "contacts"
+          ? {
+              processed:
+                state.nextCustomerContactIndex,
+              total:
+                state.customerReferences.length,
+              remaining: Math.max(
+                state.customerReferences.length -
+                  state.nextCustomerContactIndex,
+                0
+              ),
+              unit: "customers",
+            }
+          : null,
+    sourceCounts: {
+      projects: state.projects.length,
+      invoices: state.invoices.length,
+      opportunities: state.opportunities.length,
+      offers: state.offers.length,
+      customerContacts:
+        Object.keys(state.contacts).length,
+    },
+    verificationFailures:
+      state.opportunityDetailFailures.length,
+    contactFailures: state.contactFailures.length,
     startedAt: state.startedAt,
     lastUpdatedAt: state.updatedAt,
     latestCompletedIndexAt: index?.generatedAt ?? null,
     servingPreviousCompletedIndex: index !== null && index.buildId !== state.buildId && state.phase !== "complete",
   };
 }
+
 
