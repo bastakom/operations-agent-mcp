@@ -18,6 +18,10 @@ import {
   type SalesCustomerContactFailure,
   type SalesCustomerReference,
 } from "./sales-summary-contacts";
+import {
+  buildSalesAttention,
+  type SalesAttentionResult,
+} from "./sales-summary-attention";
 
 const STATE_PATH = "sales-summary/build-state.json";
 const INDEX_PATH = "sales-summary/index.json";
@@ -151,13 +155,7 @@ export type SalesSummaryIndex = {
   customers: SalesSummaryCustomer[];
   opportunityLedger: SafeOpportunity[];
   offerLedger: SafeOffer[];
-  salesAttention: {
-    customersWithoutResponsible: string[];
-    opportunitiesWithoutValue: string[];
-    opportunitiesWithoutProbability: string[];
-    opportunitiesWithoutClosingDate: string[];
-    overdueOpenOpportunities: string[];
-  };
+  salesAttention: SalesAttentionResult;
   dataQuality: {
     flags: DataQualityFlag[];
     countsByCode: Record<string, number>;
@@ -481,11 +479,24 @@ function buildIndex(state: BuildState): SalesSummaryIndex {
     groups.set(key, [...(groups.get(key) ?? []), customer]);
   }
   const countsByCode: Record<string, number> = {};
-  for (const flag of allFlags) countsByCode[flag.code] = (countsByCode[flag.code] ?? 0) + 1;
+  for (const flag of allFlags) {
+    countsByCode[flag.code] =
+      (countsByCode[flag.code] ?? 0) + 1;
+  }
+  const generatedAt = new Date().toISOString();
+  const salesAttention = buildSalesAttention(
+    customers,
+    {
+      reportYear: state.reportYear,
+      generatedAt,
+      staleOfferDays: 30,
+      actionsPerResponsible: 5,
+    }
+  );
 
   return {
     version: 2,
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     buildId: state.buildId,
     reportYear: state.reportYear,
     currency: "SEK",
@@ -506,13 +517,7 @@ function buildIndex(state: BuildState): SalesSummaryIndex {
     customers,
     opportunityLedger: state.opportunities,
     offerLedger: state.offers,
-    salesAttention: {
-      customersWithoutResponsible: customers.filter((item) => !item.responsible?.name).map((item) => item.customerId),
-      opportunitiesWithoutValue: allFlags.filter((item) => item.code === "OPEN_OPPORTUNITY_WITHOUT_VALUE").map((item) => item.entityId),
-      opportunitiesWithoutProbability: allFlags.filter((item) => item.code === "OPEN_OPPORTUNITY_WITHOUT_PROBABILITY").map((item) => item.entityId),
-      opportunitiesWithoutClosingDate: allFlags.filter((item) => item.code === "OPEN_OPPORTUNITY_WITHOUT_CLOSING_DATE").map((item) => item.entityId),
-      overdueOpenOpportunities: state.opportunities.filter((item) => item.state === "open" && item.estimatedClosingDate !== null && item.estimatedClosingDate.slice(0, 10) < today).map((item) => item.id),
-    },
+    salesAttention,
     dataQuality: {
       flags: allFlags,
       countsByCode,
@@ -736,5 +741,6 @@ export async function getSalesSummaryIndexStatus() {
     servingPreviousCompletedIndex: index !== null && index.buildId !== state.buildId && state.phase !== "complete",
   };
 }
+
 
 
