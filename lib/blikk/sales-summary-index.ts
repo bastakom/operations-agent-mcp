@@ -22,6 +22,10 @@ import {
   buildSalesAttention,
   type SalesAttentionResult,
 } from "./sales-summary-attention";
+import {
+  buildSalesDataQuality,
+  type SalesDataQualityResult,
+} from "./sales-summary-quality";
 
 const STATE_PATH = "sales-summary/build-state.json";
 const INDEX_PATH = "sales-summary/index.json";
@@ -159,6 +163,7 @@ export type SalesSummaryIndex = {
   dataQuality: {
     flags: DataQualityFlag[];
     countsByCode: Record<string, number>;
+    audit: SalesDataQualityResult;
     opportunityDetailFailures: BuildState["opportunityDetailFailures"];
     contactFailures: BuildState["contactFailures"];
   };
@@ -493,6 +498,13 @@ function buildIndex(state: BuildState): SalesSummaryIndex {
       actionsPerResponsible: 5,
     }
   );
+  const qualityAudit = buildSalesDataQuality({
+    customers,
+    projects: state.projects,
+    opportunities: state.opportunities,
+    offers: state.offers,
+    generatedAt,
+  });
 
   return {
     version: 2,
@@ -521,6 +533,7 @@ function buildIndex(state: BuildState): SalesSummaryIndex {
     dataQuality: {
       flags: allFlags,
       countsByCode,
+      audit: qualityAudit,
       opportunityDetailFailures:
         state.opportunityDetailFailures,
       contactFailures: state.contactFailures,
@@ -741,6 +754,5 @@ export async function getSalesSummaryIndexStatus() {
     servingPreviousCompletedIndex: index !== null && index.buildId !== state.buildId && state.phase !== "complete",
   };
 }
-
 
 
