@@ -417,7 +417,7 @@ export async function getAllSupplierInvoices(
 }
 
 export type PaymentPlanParams = {
-  projectId: string;
+  projectId?: string;
   page?: number;
   pageSize?: number;
 };
@@ -708,4 +708,5 @@ export async function getAllContacts(
 export async function getContact(contactId: string) {
   return blikkGet<BlikkRawItem>(`/v1/Core/Contacts/${contactId}`);
 }
+
 
