@@ -416,6 +416,118 @@ export async function getAllSupplierInvoices(
   );
 }
 
+export type TaskBoardParams = {
+  query?: string;
+  projectIds?: string;
+  sortBy?: "createdDate" | "updatedDate" | "name";
+  sortOrder?: "ascending" | "descending";
+  page?: number;
+  pageSize?: number;
+};
+
+export async function getTaskBoards(
+  params: TaskBoardParams = {}
+) {
+  return blikkGet<PagedResponse<BlikkRawItem>>(
+    "/v1/Core/TaskBoards",
+    paged({
+      page: params.page,
+      pageSize: params.pageSize,
+      sortBy: params.sortBy,
+      sortOrder: params.sortOrder,
+      "filter.query": params.query,
+      "filter.projectIds": params.projectIds,
+    })
+  );
+}
+
+export async function getAllTaskBoards(
+  params: Omit<
+    TaskBoardParams,
+    "page" | "pageSize"
+  > = {}
+) {
+  return fetchAllPages<BlikkRawItem>(
+    (page, pageSize) =>
+      getTaskBoards({
+        ...params,
+        page,
+        pageSize,
+      }),
+    "task boards"
+  );
+}
+
+export type TaskParams = {
+  createdDateFrom?: string;
+  createdDateTo?: string;
+  updatedDateFrom?: string;
+  updatedDateTo?: string;
+  createdOrUpdatedSince?: string;
+  from?: string;
+  to?: string;
+  memberIds?: string;
+  createdByUserIds?: string;
+  taskIds?: string;
+  taskBoardId?: string;
+  taskBoardColumnId?: string;
+  projectId?: string;
+  sortBy?:
+    | "createdDate"
+    | "title"
+    | "startDate"
+    | "endDate";
+  sortOrder?: "ascending" | "descending";
+  page?: number;
+  pageSize?: number;
+};
+
+export async function getTasks(
+  params: TaskParams = {}
+) {
+  return blikkGet<PagedResponse<BlikkRawItem>>(
+    "/v1/Core/Tasks",
+    paged({
+      page: params.page,
+      pageSize: params.pageSize,
+      sortBy: params.sortBy,
+      sortOrder: params.sortOrder,
+      "filter.createdDateFrom":
+        params.createdDateFrom,
+      "filter.createdDateTo": params.createdDateTo,
+      "filter.updatedDateFrom":
+        params.updatedDateFrom,
+      "filter.updatedDateTo": params.updatedDateTo,
+      "filter.createdOrUpdatedSince":
+        params.createdOrUpdatedSince,
+      "filter.from": params.from,
+      "filter.to": params.to,
+      "filter.memberIds": params.memberIds,
+      "filter.createdByUserIds":
+        params.createdByUserIds,
+      "filter.taskIds": params.taskIds,
+      "filter.taskBoardId": params.taskBoardId,
+      "filter.taskBoardColumnId":
+        params.taskBoardColumnId,
+      "filter.projectId": params.projectId,
+    })
+  );
+}
+
+export async function getAllTasks(
+  params: Omit<TaskParams, "page" | "pageSize"> = {}
+) {
+  return fetchAllPages<BlikkRawItem>(
+    (page, pageSize) =>
+      getTasks({
+        ...params,
+        page,
+        pageSize,
+      }),
+    "tasks"
+  );
+}
+
 export type PaymentPlanParams = {
   projectId?: string;
   page?: number;
@@ -708,5 +820,6 @@ export async function getAllContacts(
 export async function getContact(contactId: string) {
   return blikkGet<BlikkRawItem>(`/v1/Core/Contacts/${contactId}`);
 }
+
 
 
