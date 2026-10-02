@@ -334,6 +334,7 @@ export type PlanningSummariesParams = {
   excludeProjects?: boolean;
   excludeAbsence?: boolean;
   excludeInternal?: boolean;
+  groupBy?: "day" | "week" | "month";
 };
 
 export async function getPlanningSummariesForUser(
@@ -353,6 +354,7 @@ export async function getPlanningSummariesForUser(
         params.excludeAbsence ?? false,
       excludeInternal:
         params.excludeInternal ?? false,
+      groupBy: params.groupBy,
     })
   );
 }
