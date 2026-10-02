@@ -31,6 +31,11 @@ import { inspectProjectFinanceSources } from "../../../lib/blikk/project-finance
 import { inspectUninvoicedPaymentPlans } from "../../../lib/blikk/uninvoiced-payment-plans";
 import { getClassifiedPlanningSummariesForUser } from "../../../lib/blikk/planning";
 import {
+  addInternshipClassificationToTimeReports,
+  addInternshipClassificationToUserDayStatistics,
+  hasDateBasedInternshipRule,
+} from "../../../lib/blikk/internship";
+import {
   getOpportunityPipeline,
   toSafeOpportunity,
 } from "../../../lib/blikk/opportunities";
@@ -1052,7 +1057,7 @@ const handler = createMcpHandler(
       {
         title: "Get User Planning Summaries",
         description:
-          "Returns a Blikk user's planned hours grouped by project for an inclusive date range. The complete fetched result is split into regularProjects and noindexProjects; NOINDEX projects remain visible but are kept separate from the ordinary planning result. Accepts a full name or a unique partial name, such as 'Richard'. Dates must use the YYYY-MM-DD format.",
+          "Returns a Blikk user's planned hours grouped by project for an inclusive date range. The complete fetched result is split into regularProjects and noindexProjects; NOINDEX projects remain visible but are kept separate from the ordinary planning result. For Dariia Sivirin (user ID 15562), rows are fetched per day and marked as intern time before 2026-09-10 or employee time from 2026-09-10. Accepts a full name or a unique partial name, such as 'Richard'. Dates must use the YYYY-MM-DD format.",
         inputSchema: {
           user: z.string(),
           fromDate: z.string(),
@@ -1087,10 +1092,14 @@ const handler = createMcpHandler(
             userId,
             fromDate,
             toDate,
+            groupBy: hasDateBasedInternshipRule(userId)
+              ? "day"
+              : undefined,
           });
 
           const summaries = await getClassifiedPlanningSummariesForUser(
-            fetchedSummaries
+            fetchedSummaries,
+            userId
           );
 
           console.log(
@@ -1267,7 +1276,7 @@ const handler = createMcpHandler(
       {
         title: "Get Time Reports",
         description:
-          "Fetches all matching time reports from Blikk by automatically retrieving and combining every API page.",
+          "Fetches all matching time reports from Blikk by automatically retrieving and combining every API page. Dariia Sivirin's reports (user ID 15562) are marked as intern time before 2026-09-10 and employee time from 2026-09-10.",
         inputSchema: {
           fromDate: z.string().optional(),
           toDate: z.string().optional(),
@@ -1281,12 +1290,14 @@ const handler = createMcpHandler(
         try {
           console.log(":arrow_right: Calling getAllTimeReports()");
 
-          const reports = await getAllTimeReports({
+          const reports = addInternshipClassificationToTimeReports(
+            await getAllTimeReports({
             fromDate,
             toDate,
             userId,
             projectId,
-          });
+            })
+          );
 
           console.log(":white_check_mark: getAllTimeReports() completed");
 
@@ -1321,7 +1332,7 @@ const handler = createMcpHandler(
       {
         title: "Get User Day Statistics",
         description:
-          "Fetches all matching daily user statistics from Blikk by automatically retrieving and combining every API page.",
+          "Fetches all matching daily user statistics from Blikk by automatically retrieving and combining every API page. Dariia Sivirin's dates (user ID 15562) are marked as intern time before 2026-09-10 and employee time from 2026-09-10.",
         inputSchema: {
           fromDate: z.string(),
           toDate: z.string(),
@@ -1338,11 +1349,14 @@ const handler = createMcpHandler(
             ":arrow_right: Calling getAllUserDayStatistics()"
           );
 
-          const statistics = await getAllUserDayStatistics({
-            fromDate,
-            toDate,
-            userId,
-          });
+          const statistics =
+            addInternshipClassificationToUserDayStatistics(
+              await getAllUserDayStatistics({
+                fromDate,
+                toDate,
+                userId,
+              })
+            );
 
           console.log(
             ":white_check_mark: getAllUserDayStatistics() completed"
@@ -1505,7 +1519,7 @@ const handler = createMcpHandler(
       {
         title: "Get Project Budget Status Excluding Users",
         description:
-          "Calculates budget status after excluding selected users and/or users with selected employee tags, using the project's Timbank, Projekt, Retainer or Löpande tag. Use excludeUsers for names and excludeUserTags for tags such as Praktikant. A user matched by both is only excluded once. For Retainer projects, fromDate and toDate select the period and every calendar month touched counts as one full monthly budget. Without dates, the current calendar month is used. Dates must use YYYY-MM-DD.",
+          "Calculates budget status after excluding selected users and/or users with selected employee tags, using the project's Timbank, Projekt, Retainer or Löpande tag. Use excludeUsers for names and excludeUserTags for tags such as Praktikant. For Dariia Sivirin (user ID 15562), Praktikant excludes only reports dated before 2026-09-10; reports from 2026-09-10 remain employee time. A user matched by both is only excluded once. For Retainer projects, fromDate and toDate select the period and every calendar month touched counts as one full monthly budget. Without dates, the current calendar month is used. Dates must use YYYY-MM-DD.",
         inputSchema: {
           project: z.string(),
           excludeUsers: z.array(z.string()).optional(),
@@ -2057,7 +2071,6 @@ export {
   authenticatedHandler as POST,
   authenticatedHandler as DELETE,
 };
-
 
 
 
