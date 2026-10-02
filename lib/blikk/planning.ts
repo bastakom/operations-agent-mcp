@@ -5,6 +5,11 @@ import {
   getProjectCatalog,
   type ProjectCatalogItem,
 } from "./resolvers";
+import {
+  addInternshipClassificationToPlanningItem,
+  DARIIA_SIVIRIN_EMPLOYMENT_START_DATE,
+  hasDateBasedInternshipRule,
+} from "./internship";
 
 export const NOINDEX_PROJECT_TAG = "NOINDEX";
 
@@ -23,6 +28,13 @@ export type ClassifiedPlanningSummaries = {
     noindexProjects: number;
     totalProjects: number;
     unclassifiedProjects: number;
+    internTimeRows: number;
+    employeeTimeRows: number;
+    unresolvedInternshipRows: number;
+  };
+  internshipRule: {
+    applied: boolean;
+    cutoffDate: string | null;
   };
   regularProjects: PlanningSummaryItem[];
   noindexProjects: PlanningSummaryItem[];
@@ -122,7 +134,8 @@ function findProject(
 
 export function classifyPlanningSummaries(
   summaries: CompletePagedResponse<PlanningSummaryItem>,
-  projectCatalog: ProjectCatalogItem[]
+  projectCatalog: ProjectCatalogItem[],
+  userId?: string
 ): ClassifiedPlanningSummaries {
   const projectsById = new Map(
     projectCatalog.map((project) => [
@@ -147,7 +160,11 @@ export function classifyPlanningSummaries(
   const unclassifiedProjects: PlanningSummaryItem[] =
     [];
 
-  for (const item of summaries.items) {
+  const classifiedItems = summaries.items.map((item) =>
+    addInternshipClassificationToPlanningItem(item, userId)
+  );
+
+  for (const item of classifiedItems) {
     const project = findProject(
       item,
       projectsById,
@@ -181,9 +198,33 @@ export function classifyPlanningSummaries(
         regularProjects.length,
       noindexProjects:
         noindexProjects.length,
-      totalProjects: summaries.items.length,
+      totalProjects: classifiedItems.length,
       unclassifiedProjects:
         unclassifiedProjects.length,
+      internTimeRows: classifiedItems.filter((item) => {
+        const classification = recordValue(
+          item.internshipClassification
+        );
+        return classification?.classification === "intern";
+      }).length,
+      employeeTimeRows: classifiedItems.filter((item) => {
+        const classification = recordValue(
+          item.internshipClassification
+        );
+        return classification?.classification === "employee";
+      }).length,
+      unresolvedInternshipRows: classifiedItems.filter((item) => {
+        const classification = recordValue(
+          item.internshipClassification
+        );
+        return classification?.classification === "unresolved";
+      }).length,
+    },
+    internshipRule: {
+      applied: hasDateBasedInternshipRule(userId),
+      cutoffDate: hasDateBasedInternshipRule(userId)
+        ? DARIIA_SIVIRIN_EMPLOYMENT_START_DATE
+        : null,
     },
     regularProjects,
     noindexProjects,
@@ -192,13 +233,15 @@ export function classifyPlanningSummaries(
 }
 
 export async function getClassifiedPlanningSummariesForUser(
-  summaries: CompletePagedResponse<PlanningSummaryItem>
+  summaries: CompletePagedResponse<PlanningSummaryItem>,
+  userId?: string
 ): Promise<ClassifiedPlanningSummaries> {
   const projectCatalog =
     await getProjectCatalog();
 
   return classifyPlanningSummaries(
     summaries,
-    projectCatalog
+    projectCatalog,
+    userId
   );
 }
