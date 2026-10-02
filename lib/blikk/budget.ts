@@ -9,6 +9,11 @@ import {
   resolveProject,
   resolveUserId,
 } from "./resolvers";
+import {
+  classifyInternshipTime,
+  hasDateBasedInternshipRule,
+  isInternTag,
+} from "./internship";
 
 type ProjectTimeCalculation = {
   objectName?: string;
@@ -20,6 +25,7 @@ type ProjectTimeCalculation = {
 
 type TimeReport = {
   id: number;
+  date?: string | null;
   hours: number;
   user?: {
     id: number | string;
@@ -79,7 +85,8 @@ export type ExcludedUserBudgetItem = {
   resolvedFrom:
     | "time_reports"
     | "user_registry"
-    | "historical_tag_registry";
+    | "historical_tag_registry"
+    | "date_based_internship_rule";
   exclusionSources: ("user_name" | "user_tag")[];
   matchedTags: string[];
 };
@@ -587,6 +594,50 @@ function sumReportedHours(reports: TimeReport[]): number {
   );
 }
 
+type DateBasedInternshipHours = {
+  internHours: number;
+  employeeHours: number;
+  unresolvedHours: number;
+};
+
+function getDateBasedInternshipHours(
+  reports: TimeReport[],
+  userId: string
+): DateBasedInternshipHours {
+  const result: DateBasedInternshipHours = {
+    internHours: 0,
+    employeeHours: 0,
+    unresolvedHours: 0,
+  };
+
+  if (!hasDateBasedInternshipRule(userId)) {
+    return result;
+  }
+
+  for (const report of reports) {
+    if (String(report.user?.id ?? "") !== userId) {
+      continue;
+    }
+
+    const hours = Number(report.hours || 0);
+    const classification = classifyInternshipTime(userId, report.date);
+
+    if (classification?.classification === "intern") {
+      result.internHours += hours;
+    } else if (classification?.classification === "employee") {
+      result.employeeHours += hours;
+    } else {
+      result.unresolvedHours += hours;
+    }
+  }
+
+  return {
+    internHours: round(result.internHours),
+    employeeHours: round(result.employeeHours),
+    unresolvedHours: round(result.unresolvedHours),
+  };
+}
+
 type ReportedProjectUser = {
   userId: string;
   userName: string;
@@ -1020,7 +1071,8 @@ export async function getProjectBudgetStatusExcludingUsers(
       resolvedFrom:
         | "time_reports"
         | "user_registry"
-        | "historical_tag_registry";
+        | "historical_tag_registry"
+        | "date_based_internship_rule";
     },
     source: "user_name" | "user_tag",
     matchedTags: string[] = []
@@ -1028,6 +1080,10 @@ export async function getProjectBudgetStatusExcludingUsers(
     const existing = excludedUsersById.get(user.userId);
 
     if (existing) {
+      existing.reportedHours = round(
+        Math.max(existing.reportedHours, user.reportedHours)
+      );
+
       if (!existing.exclusionSources.includes(source)) {
         existing.exclusionSources.push(source);
       }
@@ -1112,10 +1168,47 @@ export async function getProjectBudgetStatusExcludingUsers(
       const historicalTags = getHistoricalUserTagNames(
         reportedUser.userId
       );
+      const dateBasedInternshipHours =
+        getDateBasedInternshipHours(
+          allReports,
+          reportedUser.userId
+        );
+      const requestedInternTags = cleanedUserTags.filter(isInternTag);
+      const hasInternshipOverride = hasDateBasedInternshipRule(
+        reportedUser.userId
+      );
+      const profileRequestedTags = hasInternshipOverride
+        ? cleanedUserTags.filter((tag) => !isInternTag(tag))
+        : cleanedUserTags;
+      const matchedDateBasedTags =
+        hasInternshipOverride &&
+        dateBasedInternshipHours.internHours > 0
+          ? requestedInternTags
+          : [];
       const matchedHistoricalTags = getMatchingTagNames(
         historicalTags,
-        cleanedUserTags
+        profileRequestedTags
       );
+
+      if (matchedDateBasedTags.length > 0) {
+        addExcludedUser({
+          requestedName: matchedDateBasedTags.join(", "),
+          userId: reportedUser.userId,
+          userName: reportedUser.userName,
+          reportedHours: dateBasedInternshipHours.internHours,
+          resolvedFrom: "date_based_internship_rule",
+        }, "user_tag", matchedDateBasedTags);
+      }
+
+      if (
+        hasInternshipOverride &&
+        requestedInternTags.length > 0 &&
+        dateBasedInternshipHours.unresolvedHours > 0
+      ) {
+        warnings.push(
+          `Could not classify ${dateBasedInternshipHours.unresolvedHours} reported hours for '${reportedUser.userName}' (ID ${reportedUser.userId}) because the time report date is missing or invalid.`
+        );
+      }
 
       try {
         const userDetail = await withRateLimitRetry(
@@ -1128,7 +1221,7 @@ export async function getProjectBudgetStatusExcludingUsers(
           const currentTags = getUserTagNames(userDetail);
           const matchedTags = getMatchingTagNames(
             currentTags,
-            cleanedUserTags
+            profileRequestedTags
           );
 
           setUserTagResolution({
@@ -1137,7 +1230,10 @@ export async function getProjectBudgetStatusExcludingUsers(
             reportedHours: reportedUser.reportedHours,
             tagNames: currentTags,
             tagSource: "current_user_profile",
-            matchedExclusionTags: matchedTags,
+            matchedExclusionTags: [
+              ...matchedDateBasedTags,
+              ...matchedTags,
+            ],
           });
 
           if (matchedTags.length > 0) {
@@ -1163,7 +1259,10 @@ export async function getProjectBudgetStatusExcludingUsers(
             reportedHours: reportedUser.reportedHours,
             tagNames: historicalTags,
             tagSource: "historical_tag_registry",
-            matchedExclusionTags: matchedHistoricalTags,
+            matchedExclusionTags: [
+              ...matchedDateBasedTags,
+              ...matchedHistoricalTags,
+            ],
           });
 
           if (matchedHistoricalTags.length > 0) {
@@ -1185,7 +1284,7 @@ export async function getProjectBudgetStatusExcludingUsers(
           reportedHours: reportedUser.reportedHours,
           tagNames: [],
           tagSource: "unresolved",
-          matchedExclusionTags: [],
+          matchedExclusionTags: matchedDateBasedTags,
         });
 
         warnings.push(
@@ -1202,7 +1301,10 @@ export async function getProjectBudgetStatusExcludingUsers(
               reportedHours: reportedUser.reportedHours,
               tagNames: historicalTags,
               tagSource: "historical_tag_registry",
-              matchedExclusionTags: matchedHistoricalTags,
+              matchedExclusionTags: [
+                ...matchedDateBasedTags,
+                ...matchedHistoricalTags,
+              ],
             });
 
             if (matchedHistoricalTags.length > 0) {
@@ -1224,7 +1326,7 @@ export async function getProjectBudgetStatusExcludingUsers(
             reportedHours: reportedUser.reportedHours,
             tagNames: [],
             tagSource: "unresolved",
-            matchedExclusionTags: [],
+            matchedExclusionTags: matchedDateBasedTags,
           });
 
           warnings.push(
@@ -1241,7 +1343,7 @@ export async function getProjectBudgetStatusExcludingUsers(
           reportedHours: reportedUser.reportedHours,
           tagNames: [],
           tagSource: "unresolved",
-          matchedExclusionTags: [],
+          matchedExclusionTags: matchedDateBasedTags,
         });
 
         warnings.push(
